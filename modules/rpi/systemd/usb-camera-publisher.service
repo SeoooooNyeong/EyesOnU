@@ -1,0 +1,15 @@
+[Unit]
+Description=Raspberry Pi USB webcam RTSP publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__RUN_USER__
+SupplementaryGroups=video
+ExecStart=/usr/local/bin/publish-rpi4-usb-camera __MEDIA_SERVER_IP__ __CAMERA_ID__ __VIDEO_DEVICE__
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
