@@ -1,0 +1,50 @@
+logLevel: info
+
+# Camera publishers and internal AI readers use RTSP.
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+# Browser playback protocols.
+hls: true
+hlsAddress: :8888
+hlsVariant: lowLatency
+
+webrtc: true
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcAdditionalHosts:
+  - __PI_LAN_IP__
+
+# Larix can publish through SRT when classroom Wi-Fi is unstable.
+# RTSP/TCP remains the default protocol for the first integration test.
+rtmp: false
+srt: true
+srtAddress: :8890
+moq: false
+
+# Keep management endpoints on the Pi itself.
+api: true
+apiAddress: 127.0.0.1:9997
+metrics: true
+metricsAddress: 127.0.0.1:9998
+
+pathDefaults:
+  source: publisher
+  overridePublisher: false
+
+  # Store the incoming H.264 stream without re-encoding it.
+  record: true
+  recordPath: /var/lib/mediamtx/recordings/%path/%Y/%m/%d/%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordMaxPartSize: 50M
+  recordSegmentDuration: 1m
+  recordDeleteAfter: 24h
+
+# One publisher is allowed on each fixed camera path.
+paths:
+  camera-01:
+  camera-02:
+  camera-03:
+  camera-04:
