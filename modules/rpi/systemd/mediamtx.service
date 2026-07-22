@@ -2,6 +2,7 @@
 Description=MediaMTX media server
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -11,6 +12,7 @@ WorkingDirectory=/var/lib/mediamtx
 ExecStart=/usr/local/bin/mediamtx /etc/mediamtx/mediamtx.yml
 Restart=always
 RestartSec=3
+TimeoutStopSec=10
 LimitNOFILE=65536
 
 [Install]

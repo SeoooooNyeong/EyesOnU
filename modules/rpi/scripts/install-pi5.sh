@@ -51,10 +51,19 @@ sudo install -d -m 0755 /etc/mediamtx
 sudo install -d -o mediamtx -g mediamtx -m 0755 /var/lib/mediamtx
 sudo install -d -o mediamtx -g mediamtx -m 0755 /var/lib/mediamtx/recordings
 
-sed "s/__PI_LAN_IP__/${PI_LAN_IP}/g" "${PROJECT_DIR}/config/mediamtx.yml" |
-  sudo tee /etc/mediamtx/mediamtx.yml >/dev/null
+sudo install -m 0644 "${PROJECT_DIR}/config/mediamtx.yml" /etc/mediamtx/mediamtx.yml
 
 sudo install -m 0644 "${PROJECT_DIR}/systemd/mediamtx.service" /etc/systemd/system/mediamtx.service
+
+if command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q '^Status: active'; then
+  sudo ufw allow 8554/tcp comment 'MediaMTX RTSP'
+  sudo ufw allow 8888/tcp comment 'MediaMTX HLS'
+  sudo ufw allow 8889/tcp comment 'MediaMTX WebRTC HTTP'
+  sudo ufw allow 8189/udp comment 'MediaMTX WebRTC UDP'
+  sudo ufw allow 8189/tcp comment 'MediaMTX WebRTC TCP fallback'
+  sudo ufw allow 8890/udp comment 'MediaMTX SRT'
+fi
+
 sudo systemctl daemon-reload
 sudo systemctl enable --now mediamtx
 
