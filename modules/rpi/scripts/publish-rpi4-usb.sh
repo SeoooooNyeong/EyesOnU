@@ -1,21 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVER_IP="${1:?Usage: ./publish-rpi4-usb.sh PI5_IP [camera-04] [video-device]}"
+SERVER_IP="${1:?Usage: ./publish-rpi4-usb.sh PI5_IP [camera-04] [video-device|auto]}"
 CAMERA_ID="${2:-camera-04}"
-VIDEO_DEVICE="${3:-/dev/video0}"
+VIDEO_DEVICE="${3:-auto}"
 WIDTH="${WIDTH:-1280}"
 HEIGHT="${HEIGHT:-720}"
 FPS="${FPS:-10}"
 BITRATE="${BITRATE:-1500k}"
-VIDEO_CODEC="${VIDEO_CODEC:-auto}"
+VIDEO_CODEC="${VIDEO_CODEC:-libx264}"
 
 if [[ ! "${CAMERA_ID}" =~ ^camera-[0-9]{2}$ ]]; then
   echo "ERROR: camera ID must look like camera-04" >&2
   exit 1
 fi
 
-if [[ ! -e "${VIDEO_DEVICE}" ]]; then
+if [[ "${VIDEO_DEVICE}" == "auto" ]]; then
+  shopt -s nullglob
+  STABLE_DEVICES=(/dev/v4l/by-id/*-video-index0)
+
+  if (( ${#STABLE_DEVICES[@]} > 0 )); then
+    VIDEO_DEVICE="${STABLE_DEVICES[0]}"
+  else
+    for DEVICE_CANDIDATE in /dev/video*; do
+      if v4l2-ctl -d "${DEVICE_CANDIDATE}" --all 2>/dev/null |
+        grep -qE 'Video Capture|Video Capture Multiplanar'; then
+        VIDEO_DEVICE="${DEVICE_CANDIDATE}"
+        break
+      fi
+    done
+  fi
+fi
+
+if [[ "${VIDEO_DEVICE}" == "auto" || ! -e "${VIDEO_DEVICE}" ]]; then
   echo "ERROR: video device was not found: ${VIDEO_DEVICE}" >&2
   echo "Run: v4l2-ctl --list-devices" >&2
   exit 1
