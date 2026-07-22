@@ -50,6 +50,7 @@ chmod +x scripts/*.sh
 ```
 
 설치 스크립트는 MediaMTX ARM64, FFmpeg, 전용 사용자, 녹화 디렉터리와 systemd 서비스를 설치한다.
+UFW가 활성화된 환경에서는 RTSP, HLS, WebRTC, SRT에 필요한 포트도 함께 허용한다.
 
 서비스 확인:
 
@@ -114,7 +115,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext
 ```bash
 cd ~/raspberry-pi-media-server
 chmod +x scripts/*.sh
-./scripts/publish-rpi4-usb.sh PI5_IP camera-04 /dev/video0
+./scripts/publish-rpi4-usb.sh PI5_IP camera-04 auto
 ```
 
 MJPEG 또는 하드웨어 인코더 호환 문제가 있으면 보수적인 설정으로 실행한다.
@@ -125,7 +126,7 @@ WIDTH=640 \
 HEIGHT=480 \
 FPS=10 \
 VIDEO_CODEC=libx264 \
-./scripts/publish-rpi4-usb.sh PI5_IP camera-04 /dev/video0
+./scripts/publish-rpi4-usb.sh PI5_IP camera-04 auto
 ```
 
 ## 6. Pi 4 자동 송출 등록
@@ -133,7 +134,15 @@ VIDEO_CODEC=libx264 \
 수동 송출을 먼저 확인한 뒤 systemd 서비스로 설치한다.
 
 ```bash
-./scripts/install-pi4-usb-camera.sh PI5_IP camera-04 /dev/video0
+./scripts/install-pi4-usb-camera.sh PI5_IP camera-04 auto
+```
+
+수동 테스트에서 YUYV와 libx264 설정으로 성공했다면 같은 설정을 설치 명령에 전달한다. 이 값들은 `/etc/default/usb-camera-publisher`에 저장되어 재부팅 후에도 유지된다.
+
+```bash
+./scripts/install-pi4-usb-camera.sh \
+  PI5_IP camera-04 auto \
+  yuyv422 640 480 10 libx264
 ```
 
 서비스 확인:
@@ -143,7 +152,50 @@ sudo systemctl status usb-camera-publisher
 sudo journalctl -u usb-camera-publisher -f
 ```
 
-## 7. 스트림 확인
+Pi 5나 네트워크가 아직 준비되지 않았거나 USB 웹캠 연결이 늦어져도 서비스는 5초 간격으로 계속 재시도한다.
+
+## 7. 재부팅 및 자동 복구 확인
+
+Pi 5:
+
+```bash
+sudo systemctl is-enabled mediamtx
+sudo reboot
+```
+
+재접속 후:
+
+```bash
+sudo systemctl is-active mediamtx
+```
+
+Pi 4:
+
+```bash
+sudo systemctl is-enabled usb-camera-publisher
+sudo reboot
+```
+
+재접속 후:
+
+```bash
+sudo systemctl is-active usb-camera-publisher
+sudo journalctl -u usb-camera-publisher -n 100 --no-pager
+```
+
+두 `is-enabled` 결과가 `enabled`, 재부팅 후 두 `is-active` 결과가 `active`여야 한다. Wi-Fi 연결 프로필도 자동 접속 상태여야 한다.
+
+```bash
+nmcli -f NAME,AUTOCONNECT connection show
+```
+
+필요하면 사용하는 Wi-Fi 프로필의 자동 접속을 활성화한다.
+
+```bash
+sudo nmcli connection modify "WIFI_PROFILE_NAME" connection.autoconnect yes connection.autoconnect-retries 0
+```
+
+## 8. 스트림 확인
 
 Pi 5 로그에서 다음 메시지를 확인한다.
 
@@ -155,7 +207,7 @@ is publishing to path 'camera-04'
 RTSP 재생:
 
 ```bash
-ffplay -rtsp_transport tcp -fflags nobuffer -flags low_delay -framedrop rtsp://PI5_IP:8554/camera-04
+ffplay -rtsp_transport tcp -fflags +nobuffer -flags low_delay -framedrop rtsp://PI5_IP:8554/camera-04
 ```
 
 브라우저 재생:
@@ -172,7 +224,7 @@ Pi 5 종합 점검:
 curl http://127.0.0.1:9997/v3/paths/list
 ```
 
-## 8. 녹화 확인
+## 9. 녹화 확인
 
 MediaMTX는 수신 스트림을 카메라별 1분 단위 fMP4로 저장하며 생성 후 24시간이 지난 파일을 삭제하도록 설정되어 있다.
 
@@ -193,7 +245,7 @@ find /var/lib/mediamtx/recordings -type f -name '*.mp4' -ls
 | `8554/tcp` | RTSP 발행 및 구독 |
 | `8890/udp` | Larix SRT 발행 |
 | `8889/tcp` | WebRTC 페이지 및 시그널링 |
-| `8189/udp` | WebRTC 미디어 |
+| `8189/udp`, `8189/tcp` | WebRTC 미디어(UDP 우선, TCP 예비) |
 | `8888/tcp` | HLS 재생 |
 
 관리 API `9997/tcp`와 metrics `9998/tcp`는 Pi 5의 localhost에서만 접근할 수 있다.

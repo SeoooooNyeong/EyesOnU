@@ -2,6 +2,7 @@
 set -euo pipefail
 
 CAMERA_ID="${1:-camera-01}"
+PI_LAN_IP="$(hostname -I | awk '{print $1}')"
 
 if [[ ! "${CAMERA_ID}" =~ ^camera-[0-9]{2}$ ]]; then
   echo "ERROR: camera ID must look like camera-01" >&2
@@ -10,6 +11,12 @@ fi
 
 echo "SERVICE"
 systemctl --no-pager --full status mediamtx || true
+
+echo
+echo "PLAYBACK URLS"
+echo "RTSP:   rtsp://${PI_LAN_IP}:8554/${CAMERA_ID}"
+echo "WebRTC: http://${PI_LAN_IP}:8889/${CAMERA_ID}"
+echo "HLS:    http://${PI_LAN_IP}:8888/${CAMERA_ID}"
 
 echo
 echo "ACTIVE STREAMS"
