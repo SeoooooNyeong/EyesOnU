@@ -47,6 +47,10 @@ pathDefaults:
   recordSegmentDuration: 1m
   recordDeleteAfter: 24h
 
+  # Queue each finalized one-minute segment for direct MinIO upload.
+  # Upload failures do not block MediaMTX recording.
+  runOnRecordSegmentComplete: /usr/local/lib/mediamtx/queue-recording-upload.sh
+
 # One publisher is allowed on each fixed camera path.
 paths:
   camera-01:
