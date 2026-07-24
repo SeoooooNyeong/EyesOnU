@@ -21,3 +21,12 @@ mediamtx.exe
 .idea/
 .DS_Store
 Thumbs.db
+
+# MinIO credentials and runtime configuration
+config/mediamtx-uploader.env
+/etc/default/mediamtx-uploader
+
+# MediaMTX runtime data
+upload-queue/
+.mc/
+*.part
