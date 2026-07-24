@@ -1,0 +1,19 @@
+[Unit]
+Description=Upload finalized MediaMTX recordings directly to MinIO
+After=network-online.target mediamtx.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=mediamtx
+Group=mediamtx
+Environment=HOME=/var/lib/mediamtx
+WorkingDirectory=/var/lib/mediamtx
+ExecStart=/usr/local/lib/mediamtx/upload-recordings.sh
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
