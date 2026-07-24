@@ -21,6 +21,10 @@ if [[ ! "${PI_LAN_IP}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
+if systemctl is-active --quiet mediamtx-uploader 2>/dev/null; then
+  sudo systemctl stop mediamtx-uploader
+fi
+
 if systemctl is-active --quiet mediamtx 2>/dev/null; then
   sudo systemctl stop mediamtx
 elif pgrep -x mediamtx >/dev/null 2>&1; then
@@ -31,7 +35,7 @@ fi
 
 echo "Installing MediaMTX ${MEDIAMTX_VERSION} for Pi IP ${PI_LAN_IP}"
 sudo apt-get update
-sudo apt-get install -y curl ca-certificates ffmpeg
+sudo apt-get install -y curl ca-certificates ffmpeg jq
 
 TASK_TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TASK_TMP_DIR}"' EXIT
@@ -42,18 +46,41 @@ DOWNLOAD_URL="https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAM
 curl --fail --location "${DOWNLOAD_URL}" --output "${ARCHIVE}"
 tar -xzf "${ARCHIVE}" -C "${TASK_TMP_DIR}"
 
+MC_DOWNLOAD_URL="https://dl.min.io/client/mc/release/linux-arm64/mc"
+MC_CHECKSUM_URL="${MC_DOWNLOAD_URL}.sha256sum"
+curl --fail --location "${MC_DOWNLOAD_URL}" --output "${TASK_TMP_DIR}/mc"
+curl --fail --location "${MC_CHECKSUM_URL}" --output "${TASK_TMP_DIR}/mc.sha256sum"
+MC_EXPECTED_SHA256="$(awk '{print $1}' "${TASK_TMP_DIR}/mc.sha256sum")"
+printf '%s  %s\n' \
+  "${MC_EXPECTED_SHA256}" \
+  "${TASK_TMP_DIR}/mc" |
+  sha256sum --check -
+
 if ! id mediamtx >/dev/null 2>&1; then
   sudo useradd --system --home-dir /var/lib/mediamtx --shell /usr/sbin/nologin mediamtx
 fi
 
 sudo install -m 0755 "${TASK_TMP_DIR}/mediamtx" /usr/local/bin/mediamtx
+sudo install -m 0755 "${TASK_TMP_DIR}/mc" /usr/local/bin/mc
 sudo install -d -m 0755 /etc/mediamtx
 sudo install -d -o mediamtx -g mediamtx -m 0755 /var/lib/mediamtx
 sudo install -d -o mediamtx -g mediamtx -m 0755 /var/lib/mediamtx/recordings
+sudo install -d -o mediamtx -g mediamtx -m 0755 /var/lib/mediamtx/upload-queue
+sudo install -d -o mediamtx -g mediamtx -m 0700 /var/lib/mediamtx/.mc
+sudo install -d -m 0755 /usr/local/lib/mediamtx
 
 sudo install -m 0644 "${PROJECT_DIR}/config/mediamtx.yml" /etc/mediamtx/mediamtx.yml
+sudo install -m 0755 "${PROJECT_DIR}/scripts/queue-recording-upload.sh" /usr/local/lib/mediamtx/queue-recording-upload.sh
+sudo install -m 0755 "${PROJECT_DIR}/scripts/upload-recordings.sh" /usr/local/lib/mediamtx/upload-recordings.sh
+
+if [[ ! -f /etc/default/mediamtx-uploader ]]; then
+  sudo install -o root -g mediamtx -m 0640 \
+    "${PROJECT_DIR}/config/mediamtx-uploader.env.example" \
+    /etc/default/mediamtx-uploader
+fi
 
 sudo install -m 0644 "${PROJECT_DIR}/systemd/mediamtx.service" /etc/systemd/system/mediamtx.service
+sudo install -m 0644 "${PROJECT_DIR}/systemd/mediamtx-uploader.service" /etc/systemd/system/mediamtx-uploader.service
 
 if command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q '^Status: active'; then
   sudo ufw allow 8554/tcp comment 'MediaMTX RTSP'
@@ -65,7 +92,9 @@ if command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q '^Status: active'
 fi
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now mediamtx
+sudo systemctl enable mediamtx mediamtx-uploader
+sudo systemctl restart mediamtx
+sudo systemctl restart mediamtx-uploader
 
 echo
 echo "MediaMTX is installed."
@@ -73,5 +102,7 @@ echo "RTSP:   rtsp://${PI_LAN_IP}:8554/camera-01"
 echo "SRT:    srt://${PI_LAN_IP}:8890?streamid=publish:camera-01"
 echo "WebRTC: http://${PI_LAN_IP}:8889/camera-01"
 echo "HLS:    http://${PI_LAN_IP}:8888/camera-01"
+echo "MinIO uploader config: /etc/default/mediamtx-uploader"
 echo
 sudo systemctl --no-pager --full status mediamtx
+sudo systemctl --no-pager --full status mediamtx-uploader
