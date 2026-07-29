@@ -85,9 +85,6 @@ sudo install -m 0644 "${PROJECT_DIR}/systemd/mediamtx-uploader.service" /etc/sys
 if command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q '^Status: active'; then
   sudo ufw allow 8554/tcp comment 'MediaMTX RTSP'
   sudo ufw allow 8888/tcp comment 'MediaMTX HLS'
-  sudo ufw allow 8889/tcp comment 'MediaMTX WebRTC HTTP'
-  sudo ufw allow 8189/udp comment 'MediaMTX WebRTC UDP'
-  sudo ufw allow 8189/tcp comment 'MediaMTX WebRTC TCP fallback'
   sudo ufw allow 8890/udp comment 'MediaMTX SRT'
 fi
 
@@ -100,7 +97,6 @@ echo
 echo "MediaMTX is installed."
 echo "RTSP:   rtsp://${PI_LAN_IP}:8554/camera-01"
 echo "SRT:    srt://${PI_LAN_IP}:8890?streamid=publish:camera-01"
-echo "WebRTC: http://${PI_LAN_IP}:8889/camera-01"
 echo "HLS:    http://${PI_LAN_IP}:8888/camera-01"
 echo "MinIO uploader config: /etc/default/mediamtx-uploader"
 echo
