@@ -6,7 +6,7 @@
 스마트폰 Larix ── RTSP/TCP 또는 SRT ─┐
                                      ├─> Raspberry Pi 5 / MediaMTX
 Pi 4 USB 웹캠 ── RTSP/TCP ──────────┘       ├─ RTSP → 영상 처리 및 VLC/ffplay
-                                             ├─ WebRTC/HLS → 브라우저
+                                             ├─ LL-HLS → 브라우저
                                              └─ fMP4 → 카메라별 1분 녹화
 ```
 
@@ -50,7 +50,7 @@ chmod +x scripts/*.sh
 ```
 
 설치 스크립트는 MediaMTX ARM64, FFmpeg, 전용 사용자, 녹화 디렉터리와 systemd 서비스를 설치한다.
-UFW가 활성화된 환경에서는 RTSP, HLS, WebRTC, SRT에 필요한 포트도 함께 허용한다.
+UFW가 활성화된 환경에서는 RTSP, HLS, SRT에 필요한 포트도 함께 허용한다.
 
 서비스 확인:
 
@@ -213,8 +213,7 @@ ffplay -rtsp_transport tcp -fflags +nobuffer -flags low_delay -framedrop rtsp://
 브라우저 재생:
 
 ```text
-WebRTC: http://PI5_IP:8889/camera-04
-HLS:    http://PI5_IP:8888/camera-04
+LL-HLS: http://PI5_IP:8888/camera-04
 ```
 
 Pi 5 종합 점검:
@@ -244,8 +243,6 @@ find /var/lib/mediamtx/recordings -type f -name '*.mp4' -ls
 |---|---|
 | `8554/tcp` | RTSP 발행 및 구독 |
 | `8890/udp` | Larix SRT 발행 |
-| `8889/tcp` | WebRTC 페이지 및 시그널링 |
-| `8189/udp`, `8189/tcp` | WebRTC 미디어(UDP 우선, TCP 예비) |
-| `8888/tcp` | HLS 재생 |
+| `8888/tcp` | LL-HLS 재생 |
 
 관리 API `9997/tcp`와 metrics `9998/tcp`는 Pi 5의 localhost에서만 접근할 수 있다.

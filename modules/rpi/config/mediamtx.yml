@@ -10,16 +10,8 @@ hls: true
 hlsAddress: :8888
 hlsVariant: lowLatency
 
-webrtc: true
-webrtcAddress: :8889
-webrtcLocalUDPAddress: :8189
-# Gather the current LAN addresses again whenever MediaMTX starts. This avoids
-# stale WebRTC candidates after DHCP changes. TCP is a fallback when UDP is
-# blocked by a classroom AP or firewall.
-webrtcLocalTCPAddress: :8189
-webrtcIPsFromInterfaces: true
-webrtcIPsFromInterfacesList: []
-webrtcAdditionalHosts: []
+# Browser playback uses one-way LL-HLS only.
+webrtc: false
 
 # Larix can publish through SRT when classroom Wi-Fi is unstable.
 # RTSP/TCP remains the default protocol for the first integration test.

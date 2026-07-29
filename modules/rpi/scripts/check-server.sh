@@ -23,7 +23,6 @@ find /var/lib/mediamtx/upload-queue -maxdepth 1 -type f -name '*.json' | wc -l
 echo
 echo "PLAYBACK URLS"
 echo "RTSP:   rtsp://${PI_LAN_IP}:8554/${CAMERA_ID}"
-echo "WebRTC: http://${PI_LAN_IP}:8889/${CAMERA_ID}"
 echo "HLS:    http://${PI_LAN_IP}:8888/${CAMERA_ID}"
 
 echo
@@ -33,7 +32,7 @@ curl --fail --silent http://127.0.0.1:9997/v3/paths/list
 echo
 echo
 echo "LISTENING PORTS"
-ss -lntup | grep -E ':(8554|8888|8889|8890|8189)\b' || true
+ss -lntup | grep -E ':(8554|8888|8890)\b' || true
 
 echo
 echo "STREAM PROBE (${CAMERA_ID})"
