@@ -21,11 +21,39 @@ public class RecordingAnalysisJobConsumer {
     }
 
     public void consume(RecordingAnalysisJobEvent event) {
-        if (event == null || event.jobId() == null) {
-            log.warn("Ignoring malformed recording analysis event without jobId: {}", event);
+        if (event == null) {
+            log.warn("analysis_job_message_received status=INVALID reason=MISSING_EVENT");
+            return;
+        }
+        if (event.jobId() == null) {
+            log.warn(
+                    "analysis_job_message_received caseId={} status=INVALID reason=MISSING_JOB_ID",
+                    event.caseId());
             return;
         }
 
-        claimService.claim(event.jobId());
+        log.info(
+                "analysis_job_message_received jobId={} caseId={} status=RECEIVED",
+                event.jobId(),
+                event.caseId());
+        try {
+            claimService.claim(event.jobId()).ifPresentOrElse(
+                    claimed -> log.info(
+                            "business_event=analysis_job_claimed jobId={} caseId={} status=RUNNING",
+                            claimed.getId(),
+                            claimed.getCaseId()),
+                    () -> log.debug(
+                            "analysis_job_claim_skipped jobId={} caseId={} status=ALREADY_CLAIMED",
+                            event.jobId(),
+                            event.caseId()));
+        }
+        catch (RuntimeException exception) {
+            log.error(
+                    "analysis_job_claim_failed jobId={} caseId={} status=FAILED",
+                    event.jobId(),
+                    event.caseId(),
+                    exception);
+            throw exception;
+        }
     }
 }

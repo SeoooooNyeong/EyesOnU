@@ -2,6 +2,7 @@ package com.ssafy.eyesonu.missingcase.service;
 
 import com.ssafy.eyesonu.audit.service.AuditService;
 import com.ssafy.eyesonu.common.exception.ApiException;
+import com.ssafy.eyesonu.common.logging.LogExecution;
 import com.ssafy.eyesonu.missingcase.domain.CaseStatus;
 import com.ssafy.eyesonu.missingcase.domain.MissingCaseRow;
 import com.ssafy.eyesonu.missingcase.dto.admin.CaseCloseRequest;
@@ -15,6 +16,8 @@ import com.ssafy.eyesonu.missingcase.messaging.SearchTargetEventPublisher;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CaseCommandService {
 
 	private static final int CASE_NUMBER_ATTEMPTS = 5;
+	private static final Logger log = LoggerFactory.getLogger(CaseCommandService.class);
 
 	private final MissingCaseMapper mapper;
 	private final CaseRequestValidator validator;
@@ -49,6 +53,7 @@ public class CaseCommandService {
 		this.promptNormalizer = promptNormalizer;
 	}
 
+	@LogExecution
 	public CaseCreateResponse create(CaseCreateRequest request, Long adminId) {
 		MissingCaseRow normalized = validator.normalizeCreate(request);
 		for (int attempt = 0; attempt < CASE_NUMBER_ATTEMPTS; attempt++) {
@@ -57,6 +62,10 @@ public class CaseCommandService {
 			normalized.setCaseNumber(caseNumberGenerator.generate());
 			try {
 				MissingCaseRow created = registrationWriter.write(normalized, adminId);
+				log.info(
+						"business_event=case_created caseId={} status={}",
+						created.getId(),
+						created.getStatus());
 				return new CaseCreateResponse(
 						created.getId(), created.getCaseNumber(), created.getStatus(), created.getReportedAt());
 			}
@@ -71,6 +80,7 @@ public class CaseCommandService {
 	}
 
 	@Transactional
+	@LogExecution
 	public Long update(Long caseId, CaseUpdateRequest request, Long adminId) {
 		MissingCaseRow row = requireForUpdate(caseId);
 		rejectClosed(row);
@@ -81,10 +91,12 @@ public class CaseCommandService {
 		auditService.recordRequired(
 				"CASE_UPDATED", adminId, caseId, "CASE", caseId,
 				before, CaseAuditValues.snapshot(row), Map.of());
+		log.info("business_event=case_updated caseId={} status={}", caseId, row.getStatus());
 		return caseId;
 	}
 
 	@Transactional
+	@LogExecution
 	public CaseStateResponse updateStatus(Long caseId, CaseStatusUpdateRequest request, Long adminId) {
 		MissingCaseRow row = requireForUpdate(caseId);
 		if (request.status() == CaseStatus.CLOSED) {
@@ -109,10 +121,16 @@ public class CaseCommandService {
 				Map.of("reason", request.reason().trim()));
 		MissingCaseRow updated = mapper.findById(caseId);
 		publishSearchTargetEvent(previous, request.status(), updated);
+		log.info(
+				"business_event=case_status_changed caseId={} previousStatus={} status={}",
+				caseId,
+				previous,
+				request.status());
 		return state(updated);
 	}
 
 	@Transactional
+	@LogExecution
 	public CaseStateResponse close(Long caseId, CaseCloseRequest request, Long adminId) {
 		MissingCaseRow row = requireForUpdate(caseId);
 		if (row.getStatus() == CaseStatus.CLOSED) {
@@ -140,6 +158,12 @@ public class CaseCommandService {
 				Map.of("status", row.getStatus()), Map.of("status", CaseStatus.CLOSED), detail);
 		MissingCaseRow updated = mapper.findById(caseId);
 		publishSearchTargetEvent(row.getStatus(), CaseStatus.CLOSED, updated);
+		log.info(
+				"business_event=case_closed caseId={} status={} pendingCandidates={} cancelledJobs={}",
+				caseId,
+				CaseStatus.CLOSED,
+				pendingCandidates,
+				cancelledJobs);
 		return state(updated);
 	}
 

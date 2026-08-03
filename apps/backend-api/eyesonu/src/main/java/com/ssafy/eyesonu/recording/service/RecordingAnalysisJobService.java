@@ -2,6 +2,7 @@ package com.ssafy.eyesonu.recording.service;
 
 import com.ssafy.eyesonu.audit.service.AuditService;
 import com.ssafy.eyesonu.common.exception.ApiException;
+import com.ssafy.eyesonu.common.logging.LogExecution;
 import com.ssafy.eyesonu.missingcase.domain.CaseStatus;
 import com.ssafy.eyesonu.missingcase.domain.MissingCaseRow;
 import com.ssafy.eyesonu.missingcase.domain.SearchConditionRow;
@@ -20,6 +21,8 @@ import com.ssafy.eyesonu.storage.StorageObjectUnavailableException;
 import com.ssafy.eyesonu.storage.StorageObjectVerifier;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -30,6 +33,7 @@ public class RecordingAnalysisJobService {
 
     private static final String RECORDING_ANALYSIS = "RECORDING_ANALYSIS";
     private static final String QUEUED = "QUEUED";
+    private static final Logger log = LoggerFactory.getLogger(RecordingAnalysisJobService.class);
 
     private final AnalysisJobMapper analysisJobMapper;
     private final MissingCaseMapper missingCaseMapper;
@@ -57,6 +61,7 @@ public class RecordingAnalysisJobService {
     }
 
     @Transactional
+    @LogExecution
     public RecordingAnalysisJobResponse create(
             Long caseId, RecordingAnalysisJobCreateRequest request, Long adminId) {
         MissingCaseRow missingCase = caseQueryService.require(caseId);
@@ -108,6 +113,12 @@ public class RecordingAnalysisJobService {
                 "ANALYSIS_JOB", job.getId(),
                 Map.of("conditionId", condition.getId(), "recordingId", recording.getId()));
         recordingAnalysisJobPublisher.enqueue(job.getId(), caseId);
+        log.info(
+                "business_event=analysis_job_created caseId={} recordingId={} jobId={} status={}",
+                caseId,
+                recording.getId(),
+                job.getId(),
+                job.getStatus());
         return RecordingAnalysisJobResponse.from(job);
     }
 
@@ -122,9 +133,11 @@ public class RecordingAnalysisJobService {
     @Transactional(readOnly = true)
     public List<RecordingAnalysisJobResponse> findAll(Long caseId) {
         caseQueryService.require(caseId);
-        return analysisJobMapper.findRecordingAnalysisByCaseId(caseId).stream()
+        List<RecordingAnalysisJobResponse> jobs = analysisJobMapper.findRecordingAnalysisByCaseId(caseId).stream()
                 .map(RecordingAnalysisJobResponse::from)
                 .toList();
+        log.debug("analysis_job_list_queried caseId={} resultCount={}", caseId, jobs.size());
+        return jobs;
     }
 
     @Transactional(readOnly = true)
@@ -143,6 +156,10 @@ public class RecordingAnalysisJobService {
         }
         auditService.recordRequired("RECORDING_ANALYSIS_JOB_CANCELLED", adminId, caseId,
                 "ANALYSIS_JOB", jobId, Map.of());
+        log.info(
+                "business_event=analysis_job_status_changed caseId={} jobId={} status=CANCELLED",
+                caseId,
+                jobId);
         return findById(caseId, jobId);
     }
 
@@ -156,6 +173,10 @@ public class RecordingAnalysisJobService {
         auditService.recordRequired("RECORDING_ANALYSIS_JOB_RETRIED", adminId, caseId,
                 "ANALYSIS_JOB", jobId, Map.of("previousStatus", job.getStatus()));
         recordingAnalysisJobPublisher.enqueue(jobId, caseId);
+        log.info(
+                "business_event=analysis_job_retried caseId={} jobId={} status=QUEUED",
+                caseId,
+                jobId);
         return findById(caseId, jobId);
     }
 

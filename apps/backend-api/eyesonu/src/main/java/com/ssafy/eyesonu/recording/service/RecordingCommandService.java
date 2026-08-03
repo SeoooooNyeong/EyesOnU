@@ -5,6 +5,7 @@ import com.ssafy.eyesonu.camera.domain.Camera;
 import com.ssafy.eyesonu.camera.mapper.CameraMapper;
 import com.ssafy.eyesonu.common.config.properties.MinioProperties;
 import com.ssafy.eyesonu.common.exception.ApiException;
+import com.ssafy.eyesonu.common.logging.LogExecution;
 import com.ssafy.eyesonu.recording.domain.Recording;
 import com.ssafy.eyesonu.recording.domain.RecordingRegistrationResult;
 import com.ssafy.eyesonu.recording.dto.device.RecordingCreateRequest;
@@ -14,6 +15,8 @@ import com.ssafy.eyesonu.storage.StorageObjectNotFoundException;
 import com.ssafy.eyesonu.storage.StorageObjectUnavailableException;
 import com.ssafy.eyesonu.storage.StorageObjectVerifier;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,6 +24,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class RecordingCommandService {
 
+    private static final Logger log = LoggerFactory.getLogger(RecordingCommandService.class);
     private static final String RECORDING_CONTENT_TYPE = "video/mp4";
     private static final int MP4_SIGNATURE_LENGTH = 12;
 
@@ -46,6 +50,7 @@ public class RecordingCommandService {
         this.maxFileSizeBytes = minioProperties.getMaxFileSizeBytes();
     }
 
+    @LogExecution
     public RecordingCreateResult create(
             MediaServerPrincipal principal,
             String cameraCode,
@@ -62,6 +67,10 @@ public class RecordingCommandService {
         RecordingRegistrationResult existingRegistration = recordingMapper.findRegistrationByKey(
                 principal.mediaServerId(), normalized.idempotencyKey());
         if (existingRegistration != null) {
+            log.debug(
+                    "recording_registration_replayed recordingId={} mediaServerId={} status=IDEMPOTENT_REPLAY",
+                    existingRegistration.getRecording() == null ? null : existingRegistration.getRecording().getId(),
+                    principal.mediaServerId());
             return resolveRegistration(existingRegistration, normalized.requestFingerprint());
         }
 
@@ -72,6 +81,11 @@ public class RecordingCommandService {
         long fileSize = verifyStorageObject(normalized.objectKey());
         try {
             Recording created = registrationWriter.create(principal.mediaServerId(), normalized, fileSize);
+            log.info(
+                    "business_event=recording_registered recordingId={} cameraId={} mediaServerId={} status=REGISTERED",
+                    created.getId(),
+                    created.getCameraId(),
+                    principal.mediaServerId());
             return new RecordingCreateResult(created, false);
         } catch (DuplicateKeyException exception) {
             return resolveConcurrentDuplicate(principal.mediaServerId(), normalized, exception);

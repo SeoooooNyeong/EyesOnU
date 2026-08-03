@@ -2,6 +2,7 @@ package com.ssafy.eyesonu.missingcase.service;
 
 import com.ssafy.eyesonu.audit.service.AuditService;
 import com.ssafy.eyesonu.common.exception.ApiException;
+import com.ssafy.eyesonu.common.logging.LogExecution;
 import com.ssafy.eyesonu.missingcase.domain.AdminCandidateRow;
 import com.ssafy.eyesonu.missingcase.dto.admin.AdminCandidateDetailResponse;
 import com.ssafy.eyesonu.missingcase.dto.admin.AdminCandidateReviewRequest;
@@ -9,12 +10,16 @@ import com.ssafy.eyesonu.missingcase.mapper.AdminCandidateMapper;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AdminCandidateReviewService {
+    private static final Logger log = LoggerFactory.getLogger(AdminCandidateReviewService.class);
+
     private final AdminCandidateMapper mapper;
     private final AdminCandidateQueryService queryService;
     private final AuditService auditService;
@@ -27,6 +32,7 @@ public class AdminCandidateReviewService {
     }
 
     @Transactional
+    @LogExecution
     public AdminCandidateDetailResponse review(Long candidateId, AdminCandidateReviewRequest request, Long adminId) {
         String status = normalizeStatus(request.reviewStatus());
         AdminCandidateRow current = mapper.findByIdForUpdate(candidateId);
@@ -39,6 +45,11 @@ public class AdminCandidateReviewService {
         }
         auditService.recordRequired("CANDIDATE_REVIEWED", adminId, current.getCaseId(), "CANDIDATE", candidateId,
                 Map.of("beforeStatus", current.getReviewStatus(), "afterStatus", status));
+        log.info(
+                "business_event=candidate_reviewed caseId={} candidateId={} status={}",
+                current.getCaseId(),
+                candidateId,
+                status);
         return queryService.findById(candidateId);
     }
 

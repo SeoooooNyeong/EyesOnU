@@ -3,6 +3,8 @@ package com.ssafy.eyesonu.common.exception;
 import com.ssafy.eyesonu.common.api.ApiErrorResponse;
 import jakarta.validation.ConstraintViolationException;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,9 +17,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
 	@ExceptionHandler(ApiException.class)
 	public ResponseEntity<ApiErrorResponse> handleApiException(ApiException exception) {
@@ -63,8 +68,31 @@ public class GlobalExceptionHandler {
 
 	@ExceptionHandler(DataAccessException.class)
 	public ResponseEntity<ApiErrorResponse> handleDataAccess(DataAccessException exception) {
+		log.error(
+				"request_exception statusCode={} errorCode={}",
+				HttpStatus.SERVICE_UNAVAILABLE.value(),
+				"DATABASE_UNAVAILABLE",
+				exception);
 		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
 				.body(ApiErrorResponse.of(503, "DATABASE_UNAVAILABLE", "요청을 처리할 수 없습니다."));
+	}
+
+	@ExceptionHandler(NoResourceFoundException.class)
+	public ResponseEntity<ApiErrorResponse> handleNoResourceFound(NoResourceFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(ApiErrorResponse.of(404, "RESOURCE_NOT_FOUND", "요청한 리소스를 찾을 수 없습니다."));
+	}
+
+	@ExceptionHandler(Exception.class)
+	public ResponseEntity<ApiErrorResponse> handleUnexpected(Exception exception) {
+		log.error(
+				"request_exception statusCode={} exceptionType={}",
+				HttpStatus.INTERNAL_SERVER_ERROR.value(),
+				exception.getClass().getName(),
+				exception);
+		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+				.body(ApiErrorResponse.of(
+						500, "INTERNAL_SERVER_ERROR", "Internal server error."));
 	}
 
 	private ResponseEntity<ApiErrorResponse> badRequest(String message) {
