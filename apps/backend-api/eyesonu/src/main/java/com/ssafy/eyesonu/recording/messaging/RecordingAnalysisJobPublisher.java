@@ -34,6 +34,7 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
     public static final String DEAD_LETTER_QUEUE = QUEUE + ".dlq";
     public static final String DEAD_LETTER_ROUTING_KEY = ROUTING_KEY + ".dlq";
     private static final long CONFIRM_TIMEOUT_SECONDS = 5L;
+    private static final String TRACE_ID_MDC_KEY = "traceId";
     private static final Logger log = LoggerFactory.getLogger(RecordingAnalysisJobPublisher.class);
 
     private final RabbitTemplate rabbitTemplate;
@@ -106,11 +107,14 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
                 return;
             }
             RecordingAnalysisOutbox outbox = claimed.outbox();
+            Map<String, String> previousContext = MDC.getCopyOfContextMap();
+            MDC.put(TRACE_ID_MDC_KEY, UUID.randomUUID().toString());
             long startedAt = System.nanoTime();
             AtomicBoolean leaseOwned = new AtomicBoolean(true);
-            ScheduledFuture<?> heartbeat = startHeartbeat(
-                    outbox, claimed.claimToken(), leaseOwned);
+            ScheduledFuture<?> heartbeat = null;
             try {
+                heartbeat = startHeartbeat(
+                        outbox, claimed.claimToken(), leaseOwned);
                 RecordingAnalysisJobEvent event = new RecordingAnalysisJobEvent(
                         outbox.getCommandId(), outbox.getEventType(), outbox.getJobId(),
                         outbox.getCaseId(), outbox.getRecordingId(), outbox.getCameraId(),
@@ -158,8 +162,20 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
                         elapsedMillis(startedAt),
                         exception);
             } finally {
-                heartbeat.cancel(false);
+                if (heartbeat != null) {
+                    heartbeat.cancel(false);
+                }
+                MDC.remove(TRACE_ID_MDC_KEY);
+                restoreMdc(previousContext);
             }
+        }
+    }
+
+    private void restoreMdc(Map<String, String> previousContext) {
+        if (previousContext == null || previousContext.isEmpty()) {
+            MDC.clear();
+        } else {
+            MDC.setContextMap(previousContext);
         }
     }
 

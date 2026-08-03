@@ -25,7 +25,7 @@ public class ExecutionLoggingAspect {
 		String method = methodName(joinPoint);
 		try {
 			Object result = joinPoint.proceed();
-			log.debug(
+			log.info(
 					"method_execution method={} status=SUCCESS elapsedMs={}",
 					method,
 					elapsedMillis(startedAt));

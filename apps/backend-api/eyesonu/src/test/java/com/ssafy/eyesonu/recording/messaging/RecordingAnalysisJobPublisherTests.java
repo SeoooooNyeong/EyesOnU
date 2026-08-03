@@ -1,6 +1,9 @@
 package com.ssafy.eyesonu.recording.messaging;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -18,13 +21,18 @@ import com.ssafy.eyesonu.recording.mapper.RecordingAnalysisOutboxMapper;
 import com.ssafy.eyesonu.recording.mapper.AnalysisJobMapper;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.MDC;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.core.ReturnedMessage;
@@ -52,6 +60,7 @@ class RecordingAnalysisJobPublisherTests {
     @AfterEach
     void closePublishers() {
         publishers.forEach(RecordingAnalysisJobPublisher::close);
+        MDC.clear();
     }
 
     @Test
@@ -173,6 +182,34 @@ class RecordingAnalysisJobPublisherTests {
 
         verify(outboxMapper, atLeastOnce()).renewLease(
                 eq(1L), eq("claim-1"), any(Instant.class));
+    }
+
+    @Test
+    void propagatesOutboxTraceIdToHeartbeatAndCleansUpMdc() {
+        MDC.clear();
+        claim(readyOutbox());
+        Set<String> traceIds = Collections.synchronizedSet(new HashSet<>());
+        AtomicInteger renewCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            traceIds.add(MDC.get("traceId"));
+            renewCalls.incrementAndGet();
+            return 1;
+        }).when(outboxMapper).renewLease(any(), anyString(), any(Instant.class));
+        doAnswer(invocation -> {
+            Thread.sleep(1500L);
+            CorrelationData correlationData = invocation.getArgument(4);
+            correlationData.getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbitTemplate).convertAndSend(
+                anyString(), anyString(), any(RecordingAnalysisJobEvent.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+
+        publisher(3).publishPending();
+
+        assertTrue(renewCalls.get() >= 2);
+        assertEquals(1, traceIds.size());
+        assertFalse(traceIds.contains(null));
+        assertNull(MDC.get("traceId"));
     }
 
     @Test
