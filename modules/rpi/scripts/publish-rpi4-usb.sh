@@ -43,7 +43,10 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   exit 1
 fi
 
-TARGET_URL="rtsp://${SERVER_IP}:8554/${CAMERA_ID}"
+PUBLISH_USER="${PUBLISH_USER:?PUBLISH_USER is required}"
+PUBLISH_PASSWORD="${PUBLISH_PASSWORD:?PUBLISH_PASSWORD is required}"
+
+TARGET_URL="rtsp://${PUBLISH_USER}:${PUBLISH_PASSWORD}@${SERVER_IP}:8554/${CAMERA_ID}"
 
 # Most USB webcams expose MJPEG at 720p. Override INPUT_FORMAT=yuyv422
 # when v4l2-ctl reports that MJPEG is unavailable.
