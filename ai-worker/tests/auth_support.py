@@ -1,2 +1,0 @@
-TEST_INTERNAL_API_KEY = "test-internal-api-key"
-TEST_INTERNAL_HEADERS = {"X-Internal-API-Key": TEST_INTERNAL_API_KEY}

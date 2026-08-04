@@ -18,7 +18,7 @@ public class RecordingAnalysisOutboxScheduler {
         this.publisher = publisher;
     }
 
-    @Scheduled(fixedDelayString = "${recording.analysis.outbox.poll-delay-ms}")
+    @Scheduled(fixedDelayString = "${recording.analysis.outbox.poll-delay-ms:1000}")
     public void publishPending() {
         publisher.publishPending();
     }

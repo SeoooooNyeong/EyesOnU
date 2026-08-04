@@ -2,7 +2,6 @@ package com.ssafy.eyesonu.recording.mapper;
 
 import com.ssafy.eyesonu.recording.domain.AnalysisJob;
 import com.ssafy.eyesonu.recording.domain.RecordingAnalysisPublishSnapshot;
-import java.time.Instant;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -15,27 +14,12 @@ public interface AnalysisJobMapper {
     int claimQueued(
             @Param("jobId") Long jobId,
             @Param("workerId") String workerId,
-            @Param("leaseTokenHash") String leaseTokenHash,
             @Param("leaseSeconds") long leaseSeconds);
-
-    List<AnalysisJob> findExpiredRecordingAnalysisJobsForRecovery(
-            @Param("limit") int limit, @Param("leaseSeconds") long leaseSeconds);
-
-    int requeueExpiredRecordingAnalysisJob(
-            @Param("jobId") Long jobId, @Param("leaseSeconds") long leaseSeconds);
 
     AnalysisJob findRecordingAnalysisById(@Param("jobId") Long jobId);
 
     AnalysisJob findRecordingAnalysisByIdForUpdate(
-            @Param("jobId") Long jobId,
-            @Param("workerId") String workerId,
-            @Param("leaseTokenHash") String leaseTokenHash);
-
-    int renewWorkerLease(
-            @Param("jobId") Long jobId,
-            @Param("workerId") String workerId,
-            @Param("leaseTokenHash") String leaseTokenHash,
-            @Param("leaseExpiresAt") Instant leaseExpiresAt);
+            @Param("jobId") Long jobId, @Param("workerId") String workerId);
 
     RecordingAnalysisPublishSnapshot findRecordingAnalysisPublishSnapshot(
             @Param("jobId") Long jobId, @Param("caseId") Long caseId);
@@ -61,13 +45,9 @@ public interface AnalysisJobMapper {
     int markSucceededForWorker(
             @Param("caseId") Long caseId,
             @Param("jobId") Long jobId,
-            @Param("workerId") String workerId,
-            @Param("leaseTokenHash") String leaseTokenHash);
+            @Param("workerId") String workerId);
 
-    int markFailed(
-            @Param("caseId") Long caseId,
-            @Param("jobId") Long jobId,
-            @Param("workerId") String workerId,
-            @Param("leaseTokenHash") String leaseTokenHash,
-            @Param("errorMessage") String errorMessage);
+    int markFailed(@Param("caseId") Long caseId, @Param("jobId") Long jobId,
+                   @Param("workerId") String workerId,
+                   @Param("errorMessage") String errorMessage);
 }

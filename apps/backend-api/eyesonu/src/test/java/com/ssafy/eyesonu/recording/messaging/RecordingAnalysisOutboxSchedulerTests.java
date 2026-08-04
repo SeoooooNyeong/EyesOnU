@@ -11,7 +11,6 @@ class RecordingAnalysisOutboxSchedulerTests {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(RecordingAnalysisOutboxScheduler.class)
-            .withPropertyValues("recording.analysis.outbox.poll-delay-ms=1000")
             .withBean(RecordingAnalysisJobPublisher.class, () -> mock(RecordingAnalysisJobPublisher.class));
 
     @Test

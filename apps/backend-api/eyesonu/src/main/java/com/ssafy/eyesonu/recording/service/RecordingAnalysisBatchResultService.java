@@ -41,7 +41,6 @@ public class RecordingAnalysisBatchResultService {
     private final CandidateEventCommandService candidateService;
     private final AuditService auditService;
     private final RecordingAnalysisResultStorageValidator resultStorageValidator;
-    private final RecordingAnalysisJobClaimService claimService;
     private final TransactionTemplate transactionTemplate;
 
     @Autowired
@@ -53,10 +52,9 @@ public class RecordingAnalysisBatchResultService {
             CandidateEventCommandService candidateService,
             AuditService auditService,
             RecordingAnalysisResultStorageValidator resultStorageValidator,
-            RecordingAnalysisJobClaimService claimService,
             PlatformTransactionManager transactionManager) {
         this(jobMapper, resultMapper, recordingMapper, cameraMapper, candidateService,
-                auditService, resultStorageValidator, claimService, new TransactionTemplate(transactionManager));
+                auditService, resultStorageValidator, new TransactionTemplate(transactionManager));
     }
 
     RecordingAnalysisBatchResultService(
@@ -67,7 +65,6 @@ public class RecordingAnalysisBatchResultService {
             CandidateEventCommandService candidateService,
             AuditService auditService,
             RecordingAnalysisResultStorageValidator resultStorageValidator,
-            RecordingAnalysisJobClaimService claimService,
             TransactionTemplate transactionTemplate) {
         this.jobMapper = jobMapper;
         this.resultMapper = resultMapper;
@@ -76,15 +73,11 @@ public class RecordingAnalysisBatchResultService {
         this.candidateService = candidateService;
         this.auditService = auditService;
         this.resultStorageValidator = resultStorageValidator;
-        this.claimService = claimService;
         this.transactionTemplate = transactionTemplate;
     }
 
     public RecordingAnalysisBatchResultResponse complete(
-            Long jobId,
-            RecordingAnalysisBatchResultRequest request,
-            String workerId,
-            String claimToken) {
+            Long jobId, RecordingAnalysisBatchResultRequest request, String workerId) {
         validateUniqueTracks(request);
         String payloadHash = payloadHash(request);
         // External storage calls must not run while the database row is locked.
@@ -106,12 +99,15 @@ public class RecordingAnalysisBatchResultService {
             throw new ApiException(HttpStatus.CONFLICT, "RESULT_ID_CONFLICT",
                     "A different result was already submitted for this job.");
         }
-        claimService.requireActiveWorkerJob(jobId, workerId, claimToken);
+        if (!"RUNNING".equals(job.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "JOB_NOT_RUNNABLE",
+                    "Only running recording analysis jobs can submit results.");
+        }
+        validateWorkerOwnership(job, workerId);
         resultStorageValidator.verify(job, request);
-        String leaseTokenHash = claimService.hashClaimToken(claimToken);
 
         RecordingAnalysisBatchResultResponse response = transactionTemplate.execute(status ->
-                completeInTransaction(jobId, request, workerId, leaseTokenHash, payloadHash));
+                completeInTransaction(jobId, request, workerId, payloadHash));
         if (response == null) {
             throw new IllegalStateException("Recording analysis completion transaction returned no result");
         }
@@ -119,13 +115,8 @@ public class RecordingAnalysisBatchResultService {
     }
 
     private RecordingAnalysisBatchResultResponse completeInTransaction(
-            Long jobId,
-            RecordingAnalysisBatchResultRequest request,
-            String workerId,
-            String leaseTokenHash,
-            String payloadHash) {
-        AnalysisJob job = jobMapper.findRecordingAnalysisByIdForUpdate(
-                jobId, workerId, leaseTokenHash);
+            Long jobId, RecordingAnalysisBatchResultRequest request, String workerId, String payloadHash) {
+        AnalysisJob job = jobMapper.findRecordingAnalysisByIdForUpdate(jobId, workerId);
         if (job == null) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_NOT_CLAIMED",
                     "Recording analysis job is claimed by another worker.");
@@ -176,8 +167,7 @@ public class RecordingAnalysisBatchResultService {
         result.setStatus("SUCCEEDED");
         result.setCandidateCount(request.candidates().size());
         resultMapper.insert(result);
-        if (jobMapper.markSucceededForWorker(
-                job.getCaseId(), jobId, workerId, leaseTokenHash) != 1) {
+        if (jobMapper.markSucceededForWorker(job.getCaseId(), jobId, workerId) != 1) {
             throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_STATE_CONFLICT",
                     "Recording analysis job changed before completion.");
         }
@@ -209,6 +199,13 @@ public class RecordingAnalysisBatchResultService {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "DUPLICATE_TRACK_ID",
                         "Each trackId may appear only once in a recording result.");
             }
+        }
+    }
+
+    private void validateWorkerOwnership(AnalysisJob job, String workerId) {
+        if (workerId == null || workerId.isBlank() || !workerId.equals(job.getClaimedBy())) {
+            throw new ApiException(HttpStatus.CONFLICT, "JOB_NOT_CLAIMED",
+                    "Recording analysis job is claimed by another worker.");
         }
     }
 

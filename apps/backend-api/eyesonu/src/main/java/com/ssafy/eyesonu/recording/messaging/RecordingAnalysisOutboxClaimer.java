@@ -1,12 +1,12 @@
 package com.ssafy.eyesonu.recording.messaging;
 
 import com.ssafy.eyesonu.recording.domain.RecordingAnalysisOutbox;
-import com.ssafy.eyesonu.recording.config.RecordingAnalysisProperties;
 import com.ssafy.eyesonu.recording.mapper.RecordingAnalysisOutboxMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,9 +18,9 @@ public class RecordingAnalysisOutboxClaimer {
 
     public RecordingAnalysisOutboxClaimer(
             RecordingAnalysisOutboxMapper outboxMapper,
-            RecordingAnalysisProperties properties) {
+            @Value("${recording.analysis.outbox.claim-lease-seconds:300}") long claimLeaseSeconds) {
         this.outboxMapper = outboxMapper;
-        this.claimLeaseSeconds = properties.getOutbox().getClaimLeaseSeconds();
+        this.claimLeaseSeconds = claimLeaseSeconds;
     }
 
     @Transactional

@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.anyString;
 
 import com.ssafy.eyesonu.audit.service.AuditService;
 import com.ssafy.eyesonu.common.exception.ApiException;
@@ -27,33 +26,24 @@ class RecordingAnalysisFailureServiceTests {
     @Mock private AnalysisJobMapper jobMapper;
     @Mock private RecordingAnalysisResultMapper resultMapper;
     @Mock private AuditService auditService;
-    @Mock private RecordingAnalysisJobClaimService claimService;
-
-    private static final String CLAIM_TOKEN = "claim-token-5001";
 
     private RecordingAnalysisFailureService service;
 
     @BeforeEach
     void setUp() {
-        service = new RecordingAnalysisFailureService(
-                jobMapper, resultMapper, auditService, claimService);
+        service = new RecordingAnalysisFailureService(jobMapper, resultMapper, auditService);
     }
 
     @Test
     void recordsFailureForRunningAttempt() {
         RecordingAnalysisFailureRequest request = request();
-        AnalysisJob running = job("RUNNING", 0);
-        when(jobMapper.findRecordingAnalysisById(5001L)).thenReturn(running);
+        when(jobMapper.findRecordingAnalysisByIdForUpdate(5001L, "worker-1"))
+                .thenReturn(job("RUNNING", 0));
         when(resultMapper.findByJobIdAndAttempt(5001L, 1)).thenReturn(null);
-        when(claimService.requireActiveWorkerJob(5001L, "worker-1", CLAIM_TOKEN)).thenReturn(running);
-        when(claimService.hashClaimToken(CLAIM_TOKEN)).thenReturn("lease-hash");
-        when(jobMapper.findRecordingAnalysisByIdForUpdate(5001L, "worker-1", "lease-hash"))
-                .thenReturn(running);
-        when(jobMapper.markFailed(
-                101L, 5001L, "worker-1", "lease-hash", "VIDEO_DECODE_FAILED: broken stream"))
+        when(jobMapper.markFailed(101L, 5001L, "worker-1", "VIDEO_DECODE_FAILED: broken stream"))
                 .thenReturn(1);
 
-        var response = service.fail(5001L, request, "worker-1", CLAIM_TOKEN);
+        var response = service.fail(5001L, request, "worker-1");
 
         assertEquals("FAILED", response.status());
         assertEquals(1, response.attempt());
@@ -67,48 +57,41 @@ class RecordingAnalysisFailureServiceTests {
         existing.setResultId(request.resultId());
         existing.setPayloadHash("dcf3ee10a655f03c2217484419389e4db967bb9b6642933ac652c6a6ca7ff4d9");
         existing.setStatus("FAILED");
-        when(jobMapper.findRecordingAnalysisById(5001L)).thenReturn(job("FAILED", 0));
+        when(jobMapper.findRecordingAnalysisByIdForUpdate(5001L, "worker-1"))
+                .thenReturn(job("FAILED", 0));
         when(resultMapper.findByJobIdAndAttempt(5001L, 1)).thenReturn(existing);
 
-        var response = service.fail(5001L, request, "worker-1", CLAIM_TOKEN);
+        var response = service.fail(5001L, request, "worker-1");
 
         assertTrue(response.duplicate());
         verify(jobMapper, never()).markFailed(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), anyString(), anyString());
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void usesNextAttemptAfterAdminRetry() {
         RecordingAnalysisFailureRequest request = request();
-        AnalysisJob running = job("RUNNING", 1);
-        when(jobMapper.findRecordingAnalysisById(5001L)).thenReturn(running);
+        when(jobMapper.findRecordingAnalysisByIdForUpdate(5001L, "worker-1"))
+                .thenReturn(job("RUNNING", 1));
         when(resultMapper.findByJobIdAndAttempt(5001L, 2)).thenReturn(null);
-        when(claimService.requireActiveWorkerJob(5001L, "worker-1", CLAIM_TOKEN)).thenReturn(running);
-        when(claimService.hashClaimToken(CLAIM_TOKEN)).thenReturn("lease-hash");
-        when(jobMapper.findRecordingAnalysisByIdForUpdate(5001L, "worker-1", "lease-hash"))
-                .thenReturn(running);
-        when(jobMapper.markFailed(
-                101L, 5001L, "worker-1", "lease-hash", "VIDEO_DECODE_FAILED: broken stream"))
+        when(jobMapper.markFailed(101L, 5001L, "worker-1", "VIDEO_DECODE_FAILED: broken stream"))
                 .thenReturn(1);
 
-        var response = service.fail(5001L, request, "worker-1", CLAIM_TOKEN);
+        var response = service.fail(5001L, request, "worker-1");
 
         assertEquals(2, response.attempt());
     }
 
     @Test
     void rejectsFailureFromWorkerThatDidNotClaimJob() {
-        when(jobMapper.findRecordingAnalysisById(5001L)).thenReturn(job("RUNNING", 0));
-        when(resultMapper.findByJobIdAndAttempt(5001L, 1)).thenReturn(null);
-        when(claimService.requireActiveWorkerJob(5001L, "worker-2", CLAIM_TOKEN))
-                .thenThrow(new ApiException(org.springframework.http.HttpStatus.CONFLICT,
-                        "WORKER_LEASE_CONFLICT", "Worker lease is not valid."));
+        when(jobMapper.findRecordingAnalysisByIdForUpdate(5001L, "worker-2"))
+                .thenReturn(null);
 
         ApiException exception = assertThrows(ApiException.class, () ->
-                service.fail(5001L, request(), "worker-2", CLAIM_TOKEN));
+                service.fail(5001L, request(), "worker-2"));
 
-        assertEquals("WORKER_LEASE_CONFLICT", exception.getCode());
+        assertEquals("JOB_NOT_CLAIMED", exception.getCode());
         verify(resultMapper, never()).insert(org.mockito.ArgumentMatchers.any());
     }
 

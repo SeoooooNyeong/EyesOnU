@@ -7,16 +7,15 @@ public record RecordingAnalysisJobClaimResponse(
         Long jobId,
         String status,
         int attempt,
-        String disposition,
+        boolean duplicate,
         Instant startedAt,
         String claimedBy,
-        Instant claimExpiresAt,
-        String leaseToken) {
+        Instant claimExpiresAt) {
 
     public static RecordingAnalysisJobClaimResponse from(RecordingAnalysisJobClaimResult result) {
         return new RecordingAnalysisJobClaimResponse(
                 result.job().getId(), result.job().getStatus(), result.job().getRetryCount() + 1,
-                result.disposition().name(), result.job().getStartedAt(),
-                result.job().getClaimedBy(), result.job().getClaimExpiresAt(), result.leaseToken());
+                result.duplicate(), result.job().getStartedAt(),
+                result.job().getClaimedBy(), result.job().getClaimExpiresAt());
     }
 }
