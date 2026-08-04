@@ -10,7 +10,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ssafy.eyesonu.recording.domain.RecordingAnalysisOutbox;
-import com.ssafy.eyesonu.recording.config.RecordingAnalysisProperties;
 import com.ssafy.eyesonu.recording.mapper.RecordingAnalysisOutboxMapper;
 import java.time.Instant;
 import java.util.List;
@@ -32,7 +31,7 @@ class RecordingAnalysisOutboxClaimerTests {
         when(outboxMapper.findReady(1)).thenReturn(List.of());
 
         Optional<ClaimedRecordingAnalysisOutbox> claimed =
-                new RecordingAnalysisOutboxClaimer(outboxMapper, properties(300)).claimNext();
+                new RecordingAnalysisOutboxClaimer(outboxMapper, 300).claimNext();
 
         assertTrue(claimed.isEmpty());
         verify(outboxMapper, never()).markProcessing(
@@ -48,7 +47,7 @@ class RecordingAnalysisOutboxClaimerTests {
                 .thenReturn(1);
 
         ClaimedRecordingAnalysisOutbox claimed =
-                new RecordingAnalysisOutboxClaimer(outboxMapper, properties(300)).claimNext().orElseThrow();
+                new RecordingAnalysisOutboxClaimer(outboxMapper, 300).claimNext().orElseThrow();
 
         assertEquals(outbox, claimed.outbox());
         ArgumentCaptor<Instant> leaseCaptor = ArgumentCaptor.forClass(Instant.class);
@@ -65,18 +64,12 @@ class RecordingAnalysisOutboxClaimerTests {
                 .thenReturn(0);
 
         assertThrows(IllegalStateException.class,
-                () -> new RecordingAnalysisOutboxClaimer(outboxMapper, properties(300)).claimNext());
+                () -> new RecordingAnalysisOutboxClaimer(outboxMapper, 300).claimNext());
     }
 
     private RecordingAnalysisOutbox readyOutbox() {
         return new RecordingAnalysisOutbox(
                 1L, "cmd-1", RecordingAnalysisJobPublisher.EVENT_TYPE,
                 5001L, 101L, Instant.parse("2026-07-31T04:00:00Z"), 0);
-    }
-
-    private RecordingAnalysisProperties properties(long claimLeaseSeconds) {
-        RecordingAnalysisProperties properties = new RecordingAnalysisProperties();
-        properties.getOutbox().setClaimLeaseSeconds(claimLeaseSeconds);
-        return properties;
     }
 }

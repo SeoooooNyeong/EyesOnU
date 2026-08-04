@@ -44,10 +44,7 @@ class RecordingAnalysisBatchResultServiceTests {
     @Mock private CandidateEventCommandService candidateService;
     @Mock private AuditService auditService;
     @Mock private RecordingAnalysisResultStorageValidator resultStorageValidator;
-    @Mock private RecordingAnalysisJobClaimService claimService;
     @Mock private TransactionTemplate transactionTemplate;
-
-    private static final String CLAIM_TOKEN = "claim-token-5001";
 
     private RecordingAnalysisBatchResultService service;
 
@@ -55,7 +52,7 @@ class RecordingAnalysisBatchResultServiceTests {
     void setUp() {
         service = new RecordingAnalysisBatchResultService(
                 jobMapper, resultMapper, recordingMapper, cameraMapper, candidateService,
-                auditService, resultStorageValidator, claimService, transactionTemplate);
+                auditService, resultStorageValidator, transactionTemplate);
         org.mockito.Mockito.lenient().when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(invocation ->
                 ((TransactionCallback<?>) invocation.getArgument(0)).doInTransaction(null));
     }
@@ -66,12 +63,12 @@ class RecordingAnalysisBatchResultServiceTests {
         RecordingAnalysisBatchResultRequest request = new RecordingAnalysisBatchResultRequest(
                 "result-1", List.of());
 
-        var response = service.complete(5001L, request, "worker-1", CLAIM_TOKEN);
+        var response = service.complete(5001L, request, "worker-1");
 
         assertEquals("SUCCEEDED", response.status());
         assertEquals(0, response.candidateCount());
         verify(candidateService, never()).createRecordingAnalysisBatch(any(), any(), any(), any(), any());
-        verify(jobMapper).markSucceededForWorker(101L, 5001L, "worker-1", "lease-hash");
+        verify(jobMapper).markSucceededForWorker(101L, 5001L, "worker-1");
     }
 
     @Test
@@ -82,7 +79,7 @@ class RecordingAnalysisBatchResultServiceTests {
         RecordingAnalysisBatchResultRequest request = new RecordingAnalysisBatchResultRequest(
                 "result-1", List.of(candidate("track-1"), candidate("track-2")));
 
-        var response = service.complete(5001L, request, "worker-1", CLAIM_TOKEN);
+        var response = service.complete(5001L, request, "worker-1");
 
         assertEquals(List.of(9001L, 9001L), response.candidateIds());
         verify(candidateService)
@@ -104,27 +101,23 @@ class RecordingAnalysisBatchResultServiceTests {
         existing.setCandidateCount(0);
         when(resultMapper.findByJobIdAndAttempt(5001L, 1)).thenReturn(existing);
 
-        var response = service.complete(5001L, request, "worker-1", CLAIM_TOKEN);
+        var response = service.complete(5001L, request, "worker-1");
 
         assertTrue(response.duplicate());
-        verify(jobMapper, never()).markSucceededForWorker(any(), any(), any(), any());
+        verify(jobMapper, never()).markSucceededForWorker(any(), any(), any());
     }
 
     @Test
     void rejectsResultFromWorkerThatDidNotClaimJob() {
-        AnalysisJob running = job("RUNNING");
-        when(jobMapper.findRecordingAnalysisById(5001L)).thenReturn(running);
-        when(claimService.requireActiveWorkerJob(5001L, "worker-2", CLAIM_TOKEN))
-                .thenThrow(new ApiException(org.springframework.http.HttpStatus.CONFLICT,
-                        "WORKER_LEASE_CONFLICT", "Worker lease is not valid."));
+        when(jobMapper.findRecordingAnalysisById(5001L)).thenReturn(job("RUNNING"));
 
         ApiException exception = assertThrows(ApiException.class, () ->
                 service.complete(5001L, new RecordingAnalysisBatchResultRequest("result-1", List.of()),
-                        "worker-2", CLAIM_TOKEN));
+                        "worker-2"));
 
-        assertEquals("WORKER_LEASE_CONFLICT", exception.getCode());
+        assertEquals("JOB_NOT_CLAIMED", exception.getCode());
         verify(resultStorageValidator, never()).verify(any(), any());
-        verify(jobMapper, never()).markSucceededForWorker(any(), any(), any(), any());
+        verify(jobMapper, never()).markSucceededForWorker(any(), any(), any());
     }
 
     @Test
@@ -135,7 +128,7 @@ class RecordingAnalysisBatchResultServiceTests {
         RecordingAnalysisBatchResultRequest firstRequest = new RecordingAnalysisBatchResultRequest(
                 "result-1", List.of(candidateWithSimilarity("track-1", "0.90")));
 
-        service.complete(5001L, firstRequest, "worker-1", CLAIM_TOKEN);
+        service.complete(5001L, firstRequest, "worker-1");
 
         ArgumentCaptor<RecordingAnalysisResult> resultCaptor = ArgumentCaptor.forClass(
                 RecordingAnalysisResult.class);
@@ -145,7 +138,7 @@ class RecordingAnalysisBatchResultServiceTests {
         RecordingAnalysisBatchResultRequest retryRequest = new RecordingAnalysisBatchResultRequest(
                 "result-1", List.of(candidateWithSimilarity("track-1", "0.9")));
 
-        var response = service.complete(5001L, retryRequest, "worker-1", CLAIM_TOKEN);
+        var response = service.complete(5001L, retryRequest, "worker-1");
 
         assertTrue(response.duplicate());
     }
@@ -153,17 +146,13 @@ class RecordingAnalysisBatchResultServiceTests {
     private void prepareRunningJob() {
         AnalysisJob running = job("RUNNING");
         when(jobMapper.findRecordingAnalysisById(5001L)).thenReturn(running);
-        when(claimService.requireActiveWorkerJob(5001L, "worker-1", CLAIM_TOKEN)).thenReturn(running);
-        when(claimService.hashClaimToken(CLAIM_TOKEN)).thenReturn("lease-hash");
-        when(jobMapper.findRecordingAnalysisByIdForUpdate(5001L, "worker-1", "lease-hash"))
-                .thenReturn(running);
+        when(jobMapper.findRecordingAnalysisByIdForUpdate(5001L, "worker-1")).thenReturn(running);
         when(resultMapper.findByJobIdAndAttempt(5001L, 1)).thenReturn(null);
         when(recordingMapper.findById(3001L)).thenReturn(new Recording(
                 3001L, 11L, null, null, "recordings/CAM-001/video.mp4", 100L, null));
         when(cameraMapper.findById(11L)).thenReturn(Optional.of(
                 new Camera(11L, 2L, "CAM-001", "Front")));
-        when(jobMapper.markSucceededForWorker(101L, 5001L, "worker-1", "lease-hash"))
-                .thenReturn(1);
+        when(jobMapper.markSucceededForWorker(101L, 5001L, "worker-1")).thenReturn(1);
     }
 
     private AnalysisJob job(String status) {
