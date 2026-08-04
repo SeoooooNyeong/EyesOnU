@@ -101,7 +101,7 @@ pathDefaults:
   recordSegmentDuration: 30s
   recordDeleteAfter: 24h
 
-  # Queue each finalized one-minute segment for direct MinIO upload.
+  # Queue each finalized segment for upload through a backend-issued URL.
   # Upload failures do not block MediaMTX recording.
   runOnRecordSegmentComplete: /usr/local/lib/mediamtx/queue-recording-upload.sh
 
