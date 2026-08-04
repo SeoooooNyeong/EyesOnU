@@ -17,6 +17,10 @@ echo "MINIO UPLOADER SERVICE"
 systemctl --no-pager --full status mediamtx-uploader || true
 
 echo
+echo "CAMERA HEARTBEAT SERVICE"
+systemctl --no-pager --full status mediamtx-heartbeat || true
+
+echo
 echo "PENDING MINIO UPLOADS"
 find /var/lib/mediamtx/upload-queue -maxdepth 1 -type f -name '*.json' | wc -l
 

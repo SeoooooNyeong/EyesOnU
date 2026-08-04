@@ -25,6 +25,10 @@ if systemctl is-active --quiet mediamtx-uploader 2>/dev/null; then
   sudo systemctl stop mediamtx-uploader
 fi
 
+if systemctl is-active --quiet mediamtx-heartbeat 2>/dev/null; then
+  sudo systemctl stop mediamtx-heartbeat
+fi
+
 if systemctl is-active --quiet mediamtx 2>/dev/null; then
   sudo systemctl stop mediamtx
 elif pgrep -x mediamtx >/dev/null 2>&1; then
@@ -72,6 +76,8 @@ sudo install -d -m 0755 /usr/local/lib/mediamtx
 sudo install -m 0644 "${PROJECT_DIR}/config/mediamtx.yml" /etc/mediamtx/mediamtx.yml
 sudo install -m 0755 "${PROJECT_DIR}/scripts/queue-recording-upload.sh" /usr/local/lib/mediamtx/queue-recording-upload.sh
 sudo install -m 0755 "${PROJECT_DIR}/scripts/upload-recordings.sh" /usr/local/lib/mediamtx/upload-recordings.sh
+sudo install -m 0755 "${PROJECT_DIR}/scripts/report-camera-heartbeats.sh" /usr/local/lib/mediamtx/report-camera-heartbeats.sh
+
 
 if [[ ! -f /etc/default/mediamtx-uploader ]]; then
   sudo install -o root -g mediamtx -m 0640 \
@@ -92,6 +98,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable mediamtx mediamtx-uploader
 sudo systemctl restart mediamtx
 sudo systemctl restart mediamtx-uploader
+sudo systemctl restart mediamtx-heartbeat
 
 echo
 echo "MediaMTX is installed."
@@ -99,6 +106,8 @@ echo "RTSP:   rtsp://${PI_LAN_IP}:8554/camera-01"
 echo "SRT:    srt://${PI_LAN_IP}:8890?streamid=publish:camera-01"
 echo "HLS:    http://${PI_LAN_IP}:8888/camera-01"
 echo "MinIO uploader config: /etc/default/mediamtx-uploader"
+echo "Camera heartbeat config: /etc/default/mediamtx-uploader"
 echo
 sudo systemctl --no-pager --full status mediamtx
 sudo systemctl --no-pager --full status mediamtx-uploader
+sudo systemctl --no-pager --full status mediamtx-heartbeat
