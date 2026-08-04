@@ -98,7 +98,7 @@ pathDefaults:
   recordFormat: fmp4
   recordPartDuration: 1s
   recordMaxPartSize: 50M
-  recordSegmentDuration: 1m
+  recordSegmentDuration: 30s
   recordDeleteAfter: 24h
 
   # Queue each finalized one-minute segment for direct MinIO upload.
