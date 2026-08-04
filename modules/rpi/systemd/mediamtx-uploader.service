@@ -1,5 +1,5 @@
 [Unit]
-Description=Upload finalized MediaMTX recordings directly to MinIO
+Description=Upload finalized MediaMTX recordings with backend-issued URLs
 After=network-online.target mediamtx.service
 Wants=network-online.target
 StartLimitIntervalSec=0
