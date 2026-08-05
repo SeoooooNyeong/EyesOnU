@@ -70,6 +70,25 @@ async function settle() {
   }
 }
 
+function trackButtonListeners() {
+  const createElement = document.createElement.bind(document);
+  const buttons = [];
+  vi.spyOn(document, "createElement").mockImplementation((tagName, options) => {
+    const element = createElement(tagName, options);
+    if (String(tagName).toLowerCase() === "button") {
+      vi.spyOn(element, "addEventListener");
+      vi.spyOn(element, "removeEventListener");
+      buttons.push(element);
+    }
+    return element;
+  });
+  return buttons;
+}
+
+function registeredClickHandler(element) {
+  return element.addEventListener.mock.calls.find(([type]) => type === "click")?.[1];
+}
+
 describe("RouteMap", () => {
   let app;
   let root;
@@ -142,5 +161,34 @@ describe("RouteMap", () => {
     await settle();
 
     expect(root.textContent).toContain("카카오맵을 불러오지 못했습니다");
+  });
+
+  it("포인트를 다시 그릴 때 기존 마커의 클릭 리스너를 해제한다", async () => {
+    const buttons = trackButtonListeners();
+    const state = mount();
+    await settle();
+    const previousButtons = [...buttons];
+    const previousHandlers = previousButtons.map(registeredClickHandler);
+
+    state.points = [{ candidateId: 4, latitude: 37.52, longitude: 127.02 }];
+    await settle();
+
+    previousButtons.forEach((element, index) => {
+      expect(element.removeEventListener).toHaveBeenCalledWith("click", previousHandlers[index]);
+    });
+  });
+
+  it("언마운트할 때 현재 마커의 클릭 리스너를 해제한다", async () => {
+    const buttons = trackButtonListeners();
+    mount();
+    await settle();
+    const handlers = buttons.map(registeredClickHandler);
+
+    app.unmount();
+    app = undefined;
+
+    buttons.forEach((element, index) => {
+      expect(element.removeEventListener).toHaveBeenCalledWith("click", handlers[index]);
+    });
   });
 });

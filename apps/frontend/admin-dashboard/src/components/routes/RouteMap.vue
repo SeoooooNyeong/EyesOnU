@@ -29,7 +29,10 @@ const validPoints = () => props.points
   .filter(({ latitude, longitude }) => Number.isFinite(latitude) && Number.isFinite(longitude));
 
 function clearMapObjects() {
-  overlays.forEach(({ overlay }) => overlay.setMap(null));
+  overlays.forEach(({ overlay, element, clickHandler }) => {
+    element.removeEventListener("click", clickHandler);
+    overlay.setMap(null);
+  });
   overlays = [];
   if (polyline) polyline.setMap(null);
   polyline = undefined;
@@ -92,7 +95,8 @@ function drawRoute() {
     element.className = "route-coordinate-marker";
     element.textContent = markerLabel(indices);
     element.title = `${indices.map((index) => `${index + 1}번`).join(", ")} 관측 지점`;
-    element.addEventListener("click", () => emit("select", indices[0]));
+    const clickHandler = () => emit("select", indices[0]);
+    element.addEventListener("click", clickHandler);
     const overlay = new kakao.maps.CustomOverlay({
       map,
       position: new kakao.maps.LatLng(group[0].latitude, group[0].longitude),
@@ -100,7 +104,7 @@ function drawRoute() {
       yAnchor: 0.5,
       zIndex: 3
     });
-    overlays.push({ overlay, element, indices });
+    overlays.push({ overlay, element, indices, clickHandler });
   });
 
   updateActiveMarker();
