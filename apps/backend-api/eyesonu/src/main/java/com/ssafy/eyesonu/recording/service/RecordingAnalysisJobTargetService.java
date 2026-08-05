@@ -12,9 +12,13 @@ import org.springframework.stereotype.Service;
 public class RecordingAnalysisJobTargetService {
 
     private final AnalysisJobMapper analysisJobMapper;
+    private final RecordingAnalysisTimeRangeCalculator timeRangeCalculator;
 
-    public RecordingAnalysisJobTargetService(AnalysisJobMapper analysisJobMapper) {
+    public RecordingAnalysisJobTargetService(
+            AnalysisJobMapper analysisJobMapper,
+            RecordingAnalysisTimeRangeCalculator timeRangeCalculator) {
         this.analysisJobMapper = analysisJobMapper;
+        this.timeRangeCalculator = timeRangeCalculator;
     }
 
     public RecordingAnalysisJobTargetResponse find(Long jobId, String workerId) {
@@ -42,6 +46,10 @@ public class RecordingAnalysisJobTargetService {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                     "BUSINESS_RULE_VIOLATION", "Recording analysis target could not be loaded.");
         }
-        return RecordingAnalysisJobTargetResponse.from(snapshot);
+        var analysisRange = timeRangeCalculator.requireIntersection(
+                snapshot.getSearchStart(), snapshot.getSearchEnd(),
+                snapshot.getRecordingStart(), snapshot.getRecordingEnd());
+        return RecordingAnalysisJobTargetResponse.from(
+                snapshot, analysisRange.start(), analysisRange.end());
     }
 }

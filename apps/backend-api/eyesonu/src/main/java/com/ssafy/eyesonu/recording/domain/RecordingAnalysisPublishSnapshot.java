@@ -17,6 +17,8 @@ public class RecordingAnalysisPublishSnapshot {
     private String cameraCode;
     private String cameraName;
     private String recordingObjectKey;
+    private Instant recordingStart;
+    private Instant recordingEnd;
     private String prompt;
     private String exclusionPrompt;
     private Instant searchStart;

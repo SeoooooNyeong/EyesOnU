@@ -38,6 +38,7 @@ public class RecordingAnalysisJobService {
     private final StorageObjectVerifier storageObjectVerifier;
     private final AuditService auditService;
     private final RecordingAnalysisJobPublisher recordingAnalysisJobPublisher;
+    private final RecordingAnalysisTimeRangeCalculator timeRangeCalculator;
 
     public RecordingAnalysisJobService(
             AnalysisJobMapper analysisJobMapper,
@@ -46,7 +47,8 @@ public class RecordingAnalysisJobService {
             RecordingMapper recordingMapper,
             StorageObjectVerifier storageObjectVerifier,
             AuditService auditService,
-            RecordingAnalysisJobPublisher recordingAnalysisJobPublisher) {
+            RecordingAnalysisJobPublisher recordingAnalysisJobPublisher,
+            RecordingAnalysisTimeRangeCalculator timeRangeCalculator) {
         this.analysisJobMapper = analysisJobMapper;
         this.missingCaseMapper = missingCaseMapper;
         this.caseQueryService = caseQueryService;
@@ -54,6 +56,7 @@ public class RecordingAnalysisJobService {
         this.storageObjectVerifier = storageObjectVerifier;
         this.auditService = auditService;
         this.recordingAnalysisJobPublisher = recordingAnalysisJobPublisher;
+        this.timeRangeCalculator = timeRangeCalculator;
     }
 
     @Transactional
@@ -74,6 +77,9 @@ public class RecordingAnalysisJobService {
         if (recording == null) {
             throw notFound("Recording was not found.");
         }
+        timeRangeCalculator.requireIntersection(
+                condition.getSearchStart(), condition.getSearchEnd(),
+                recording.getStartTime(), recording.getEndTime());
 
         AnalysisJob existing = analysisJobMapper.findActiveByTarget(
                 caseId, condition.getId(), recording.getId());
@@ -149,6 +155,17 @@ public class RecordingAnalysisJobService {
     @Transactional
     public RecordingAnalysisJobResponse retry(Long caseId, Long jobId, Long adminId) {
         AnalysisJob job = requireJob(caseId, jobId);
+        if (!"FAILED".equals(job.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_STATE_CONFLICT",
+                    "Only failed recording analysis jobs can be retried.");
+        }
+        Recording recording = recordingMapper.findById(job.getRecordingId());
+        if (recording == null) {
+            throw notFound("Recording was not found.");
+        }
+        timeRangeCalculator.requireIntersection(
+                job.getSearchStartSnapshot(), job.getSearchEndSnapshot(),
+                recording.getStartTime(), recording.getEndTime());
         if (analysisJobMapper.retryFailed(caseId, jobId) != 1) {
             throw new ApiException(HttpStatus.CONFLICT, "RESOURCE_STATE_CONFLICT",
                     "Only failed recording analysis jobs can be retried.");

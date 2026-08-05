@@ -56,7 +56,9 @@ const caseItem = {
 const condition = {
   id: 10,
   prompt: "흰색 상의와 검은색 바지",
-  searchArea: "정문"
+  searchArea: "정문",
+  searchStart: "2026-08-04T10:00:00Z",
+  searchEnd: "2026-08-04T11:00:00Z"
 };
 
 const recording = (cameraId = 4) => ({
@@ -133,6 +135,8 @@ describe("RecordingSearchView", () => {
 
     expect(listAdminRecordingsMock).toHaveBeenCalledWith(expect.objectContaining({
       cameraId: 4,
+      startFrom: condition.searchStart,
+      startTo: condition.searchEnd,
       page: 0,
       size: 100
     }));
@@ -148,18 +152,59 @@ describe("RecordingSearchView", () => {
     expect(root.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it("keeps the form visible when required selections are missing", async () => {
+  it("reloads recordings with the newly selected condition time range", async () => {
+    const nextCondition = {
+      ...condition,
+      id: 11,
+      searchStart: "2026-08-04T12:00:00Z",
+      searchEnd: "2026-08-04T13:00:00Z"
+    };
+    listSearchConditionsMock.mockResolvedValue([condition, nextCondition]);
     mount();
     await settle();
+    await selectCase();
+    listAdminRecordingsMock.mockClear();
 
-    root.querySelector(".search-button").click();
+    const conditionSelect = root.querySelector('.recording-filter-main select');
+    conditionSelect.value = "11";
+    conditionSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+
+    expect(listAdminRecordingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      cameraId: 4,
+      startFrom: nextCondition.searchStart,
+      startTo: nextCondition.searchEnd
+    }));
+  });
+
+  it("blocks recording analysis when the selected condition has no time range", async () => {
+    listSearchConditionsMock.mockResolvedValue([{ ...condition, searchStart: null, searchEnd: null }]);
+    mount();
+    await settle();
+    await selectCase();
+
+    expect(listAdminRecordingsMock).not.toHaveBeenCalled();
+    expect(root.textContent).toContain("탐색 시작·종료 시간이 필요한 조건입니다.");
+    expect(root.querySelector(".search-button").disabled).toBe(true);
+  });
+
+  it("shows an empty state when no recording overlaps the condition", async () => {
+    listAdminRecordingsMock.mockResolvedValue({ data: [] });
+    mount();
+    await settle();
+    await selectCase();
+
+    expect(root.textContent).toContain("탐색 기간과 겹치는 녹화본이 없습니다.");
+    expect(root.querySelector(".search-button").disabled).toBe(true);
+  });
+
+  it("keeps the form visible and disables submission when required selections are missing", async () => {
+    mount();
     await settle();
 
     expect(createRecordingAnalysisJobMock).not.toHaveBeenCalled();
     expect(root.querySelector(".recording-search-form")).not.toBeNull();
-    expect(root.querySelector('[role="alert"]').textContent).toContain(
-      "사건, 탐색 조건, 녹화를 모두 선택해주세요."
-    );
+    expect(root.querySelector(".search-button").disabled).toBe(true);
   });
 
   it("keeps the form and existing jobs visible when job registration fails", async () => {

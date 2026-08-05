@@ -57,7 +57,7 @@ class RecordingAnalysisJobServiceTests {
         service = new RecordingAnalysisJobService(
                 analysisJobMapper, missingCaseMapper, caseQueryService,
                 recordingMapper, storageObjectVerifier, auditService,
-                recordingAnalysisJobPublisher);
+                recordingAnalysisJobPublisher, new RecordingAnalysisTimeRangeCalculator());
     }
 
     @Test
@@ -150,9 +150,60 @@ class RecordingAnalysisJobServiceTests {
         job.setCaseId(CASE_ID);
         job.setStatus("SUCCEEDED");
         when(analysisJobMapper.findById(CASE_ID, 5001L)).thenReturn(job);
-        when(analysisJobMapper.retryFailed(CASE_ID, 5001L)).thenReturn(0);
 
         assertThrows(ApiException.class, () -> service.retry(CASE_ID, 5001L, 7L));
+        verifyNoInteractions(auditService, recordingAnalysisJobPublisher);
+    }
+
+    @Test
+    void rejectsCreateWhenSearchTimeRangeIsMissingBeforeSideEffects() {
+        when(caseQueryService.require(CASE_ID)).thenReturn(caseWithStatus(CaseStatus.SEARCHING));
+        SearchConditionRow condition = condition();
+        condition.setSearchStart(null);
+        condition.setSearchEnd(null);
+        when(missingCaseMapper.findSearchCondition(CASE_ID, CONDITION_ID)).thenReturn(condition);
+        when(recordingMapper.findById(RECORDING_ID)).thenReturn(recording());
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> service.create(CASE_ID, request(), 1L));
+
+        assertEquals("BUSINESS_RULE_VIOLATION", exception.getCode());
+        verify(analysisJobMapper, never()).insert(any());
+        verifyNoInteractions(storageObjectVerifier, auditService, recordingAnalysisJobPublisher);
+    }
+
+    @Test
+    void rejectsCreateWhenRecordingOnlyTouchesSearchRangeBoundary() {
+        when(caseQueryService.require(CASE_ID)).thenReturn(caseWithStatus(CaseStatus.SEARCHING));
+        SearchConditionRow condition = condition();
+        condition.setSearchStart(Instant.parse("2026-07-30T01:00:00Z"));
+        condition.setSearchEnd(Instant.parse("2026-07-30T02:00:00Z"));
+        when(missingCaseMapper.findSearchCondition(CASE_ID, CONDITION_ID)).thenReturn(condition);
+        when(recordingMapper.findById(RECORDING_ID)).thenReturn(recording());
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> service.create(CASE_ID, request(), 1L));
+
+        assertEquals("BUSINESS_RULE_VIOLATION", exception.getCode());
+        verify(analysisJobMapper, never()).insert(any());
+        verifyNoInteractions(storageObjectVerifier, auditService, recordingAnalysisJobPublisher);
+    }
+
+    @Test
+    void rejectsRetryWhenLegacyJobHasNoSearchTimeRange() {
+        AnalysisJob job = new AnalysisJob();
+        job.setId(5001L);
+        job.setCaseId(CASE_ID);
+        job.setRecordingId(RECORDING_ID);
+        job.setStatus("FAILED");
+        when(analysisJobMapper.findById(CASE_ID, 5001L)).thenReturn(job);
+        when(recordingMapper.findById(RECORDING_ID)).thenReturn(recording());
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> service.retry(CASE_ID, 5001L, 7L));
+
+        assertEquals("BUSINESS_RULE_VIOLATION", exception.getCode());
+        verify(analysisJobMapper, never()).retryFailed(CASE_ID, 5001L);
         verifyNoInteractions(auditService, recordingAnalysisJobPublisher);
     }
 
@@ -177,6 +228,8 @@ class RecordingAnalysisJobServiceTests {
         row.setId(CONDITION_ID);
         row.setCaseId(CASE_ID);
         row.setPrompt("black shirt and blue pants");
+        row.setSearchStart(Instant.parse("2026-07-30T00:15:00Z"));
+        row.setSearchEnd(Instant.parse("2026-07-30T00:45:00Z"));
         return row;
     }
 

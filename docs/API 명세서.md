@@ -1551,6 +1551,10 @@ Jetson은 후보 탐지를 수행하고 해당 카메라를 관리하는 미디�
 
 녹화 분석 작업 요청·응답과 신규 snapshot에는 `similarityThreshold`를 포함하거나 기록하지 않는다. AI Worker는 후보 선별 기준을 자체 모델 실행 설정으로 관리한다.
 
+- 녹화 분석 작업은 `searchStart`, `searchEnd`가 모두 존재하고 `searchStart < searchEnd`인 탐색 조건만 허용한다.
+- 선택한 녹화본은 반개구간 기준으로 `recording.startTime < searchEnd && recording.endTime > searchStart`를 만족해야 하며, 위반하면 `422 BUSINESS_RULE_VIOLATION`이다.
+- Worker Target 응답은 기존 `searchStart`, `searchEnd`와 함께 `recordingStart`, `recordingEnd`, `analysisStart`, `analysisEnd`를 제공한다. 실제 분석 구간은 `max(searchStart, recordingStart)`부터 `min(searchEnd, recordingEnd)`까지다.
+
 ---
 
 ## 10. 감사 로그 API

@@ -25,8 +25,9 @@ X-Worker-Key: <worker-key>
 ```
 
 The response includes the recording object key, canonical appearance prompts,
-search time and area, camera information, and the current attempt. The Worker
-must use this response instead of receiving appearance prompts through RabbitMQ.
+the requested search range, recording range, effective analysis range, search
+area, camera information, and the current attempt. The Worker must use this
+response instead of receiving appearance prompts through RabbitMQ.
 
 ```json
 {
@@ -37,14 +38,23 @@ must use this response instead of receiving appearance prompts through RabbitMQ.
   "cameraCode": "CAM-003",
   "cameraName": "Front",
   "recordingObjectKey": "recordings/CAM-003/2026/08/03/video.mp4",
+  "recordingStart": "2026-08-02T23:45:00Z",
+  "recordingEnd": "2026-08-03T00:20:00Z",
   "prompt": "a man wearing a black short sleeve top and black pants",
   "exclusionPrompt": null,
   "searchStart": "2026-08-03T00:00:00Z",
   "searchEnd": "2026-08-03T00:30:00Z",
+  "analysisStart": "2026-08-03T00:00:00Z",
+  "analysisEnd": "2026-08-03T00:20:00Z",
   "searchArea": "front gate",
   "attempt": 1
 }
 ```
+
+All time ranges use half-open interval semantics (`[start, end)`). The effective
+range is calculated as `analysisStart = max(searchStart, recordingStart)` and
+`analysisEnd = min(searchEnd, recordingEnd)`. The Worker starts decoding at the
+offset `analysisStart - recordingStart` and stops at `analysisEnd`.
 
 ## 3. Request image upload URLs
 

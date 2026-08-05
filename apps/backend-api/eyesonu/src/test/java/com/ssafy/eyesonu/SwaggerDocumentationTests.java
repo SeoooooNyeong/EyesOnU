@@ -206,6 +206,18 @@ class SwaggerDocumentationTests {
 						.exists())
 				.andExpect(jsonPath("$.components.schemas.RecordingAnalysisJobTargetResponse")
 						.exists())
+				.andExpect(jsonPath(
+						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.recordingStart")
+						.exists())
+				.andExpect(jsonPath(
+						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.recordingEnd")
+						.exists())
+				.andExpect(jsonPath(
+						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.analysisStart")
+						.exists())
+				.andExpect(jsonPath(
+						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.analysisEnd")
+						.exists())
 				.andExpect(jsonPath("$.components.schemas.RecordingAnalysisFailureRequest")
 						.exists())
 				.andExpect(jsonPath("$.components.schemas.RecordingAnalysisJobClaimResponse")

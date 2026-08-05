@@ -20,32 +20,29 @@ const caseCameraIds = ref([]);
 const recordings = ref([]);
 const jobs = ref([]);
 const loading = ref(true);
+const recordingsLoading = ref(false);
 const submitting = ref(false);
 const loadError = ref("");
 const actionError = ref("");
 const caseDropdownOpen = ref(false);
-const getMidnight = () => {
-  const now = new Date();
-  const date = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-  return `${date.toISOString().slice(0, 10)}T00:00`;
-};
 const form = ref({
   caseId: "",
   conditionId: "",
-  recordingId: "",
-  searchArea: "",
-  fromAt: getMidnight(),
-  toAt: getMidnight()
+  recordingId: ""
 });
 
 const selectedCase = computed(() => cases.value.find((item) => String(item.id) === String(form.value.caseId)));
 const selectedCondition = computed(() => conditions.value.find((item) => String(item.id) === String(form.value.conditionId)));
 const selectedRecording = computed(() => recordings.value.find((item) => String(item.id) === String(form.value.recordingId)));
+const hasValidSearchTimeRange = computed(() => {
+  const start = new Date(selectedCondition.value?.searchStart || "");
+  const end = new Date(selectedCondition.value?.searchEnd || "");
+  return !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start.getTime() < end.getTime();
+});
 const visibleJobs = computed(() => form.value.caseId
   ? jobs.value.filter((job) => String(job.caseId) === String(form.value.caseId))
   : jobs.value);
 
-const toIso = (value) => value ? new Date(value).toISOString() : undefined;
 const formatDate = (value) => value ? new Date(value).toLocaleString("ko-KR") : "-";
 const recordingLabel = (recording) => {
   const camera = recording.camera?.cameraCode || recording.camera?.cameraName || "카메라";
@@ -54,27 +51,57 @@ const recordingLabel = (recording) => {
 const jobProgress = (status) => ({ QUEUED: 3, RUNNING: 50, SUCCEEDED: 100, FAILED: 100, CANCELLED: 100 }[status] ?? 0);
 const jobStatus = (status) => ({ QUEUED: "searching", RUNNING: "searching", SUCCEEDED: "closed", FAILED: "failed", CANCELLED: "cancelled" }[status] || "searching");
 
+let recordingLoadRequestId = 0;
 const loadRecordings = async () => {
-  if (!form.value.caseId || caseCameraIds.value.length === 0) {
-    recordings.value = [];
-    form.value.recordingId = "";
-    return;
-  }
+  const requestId = ++recordingLoadRequestId;
+  const caseId = form.value.caseId;
+  const conditionId = form.value.conditionId;
+  const condition = selectedCondition.value;
+  const cameraIds = [...caseCameraIds.value];
+  recordings.value = [];
+  form.value.recordingId = "";
+  recordingsLoading.value = false;
 
-  const results = await Promise.all(caseCameraIds.value.map((cameraId) => listAdminRecordings({
-    cameraId,
-    startFrom: toIso(form.value.fromAt),
-    startTo: toIso(form.value.toAt),
-    page: 0,
-    size: 100,
-    sort: "startTime,desc"
-  })));
+  if (!caseId || !conditionId || cameraIds.length === 0 || !hasValidSearchTimeRange.value) return;
+
+  recordingsLoading.value = true;
+  let results;
+  try {
+    results = await Promise.all(cameraIds.map((cameraId) => listAdminRecordings({
+      cameraId,
+      startFrom: condition.searchStart,
+      startTo: condition.searchEnd,
+      page: 0,
+      size: 100,
+      sort: "startTime,desc"
+    })));
+  } catch (exception) {
+    if (requestId !== recordingLoadRequestId
+        || caseId !== form.value.caseId
+        || conditionId !== form.value.conditionId) return;
+    throw exception;
+  } finally {
+    if (requestId === recordingLoadRequestId) recordingsLoading.value = false;
+  }
+  if (requestId !== recordingLoadRequestId
+      || caseId !== form.value.caseId
+      || conditionId !== form.value.conditionId) return;
+
   const byId = new Map(results.flatMap((result) => result.data || []).map((recording) => [recording.id, recording]));
   recordings.value = [...byId.values()].sort((left, right) => (
     new Date(right.startTime).getTime() - new Date(left.startTime).getTime()
   ));
   if (!recordings.value.some((item) => String(item.id) === String(form.value.recordingId))) {
     form.value.recordingId = recordings.value[0]?.id ? String(recordings.value[0].id) : "";
+  }
+};
+
+const changeCondition = async () => {
+  actionError.value = "";
+  try {
+    await loadRecordings();
+  } catch (exception) {
+    actionError.value = exception.message || "녹화 목록을 불러오지 못했습니다.";
   }
 };
 
@@ -130,13 +157,19 @@ const load = async () => {
 };
 
 const selectCase = async (caseItem) => {
+  recordingLoadRequestId += 1;
+  recordingsLoading.value = false;
   form.value.caseId = String(caseItem.id);
+  recordings.value = [];
+  form.value.recordingId = "";
   caseDropdownOpen.value = false;
   await loadCaseData();
   await loadRecordings();
 };
 
 const selectAllCases = () => {
+  recordingLoadRequestId += 1;
+  recordingsLoading.value = false;
   form.value.caseId = "";
   form.value.conditionId = "";
   conditions.value = [];
@@ -147,6 +180,10 @@ const selectAllCases = () => {
 };
 
 const requestSearch = async () => {
+  if (!hasValidSearchTimeRange.value) {
+    actionError.value = "탐색 시작·종료 시간이 설정된 조건만 녹화 분석에 사용할 수 있습니다.";
+    return;
+  }
   const selectedCameraId = selectedRecording.value?.camera?.id;
   const recordingBelongsToCase = selectedCameraId != null && caseCameraIds.value.some(
     (cameraId) => String(cameraId) === String(selectedCameraId)
@@ -209,9 +246,7 @@ watch(
   () => [
     form.value.caseId,
     form.value.conditionId,
-    form.value.recordingId,
-    form.value.fromAt,
-    form.value.toAt
+    form.value.recordingId
   ],
   () => {
     actionError.value = "";
@@ -249,7 +284,7 @@ onUnmounted(() => {
             </div>
           </label>
           <label>탐색 조건
-            <select v-model="form.conditionId">
+            <select v-model="form.conditionId" @change="changeCondition">
               <option value="">조건 선택</option>
               <option v-for="condition in conditions" :key="condition.id" :value="String(condition.id)">{{ condition.prompt || `조건 ${condition.id}` }}</option>
             </select>
@@ -259,16 +294,20 @@ onUnmounted(() => {
           </label>
         </div>
         <div class="filter-bar recording-filter-time">
-          <label>시작<input v-model="form.fromAt" type="datetime-local" @change="loadRecordings" /></label>
-          <label>종료<input v-model="form.toAt" type="datetime-local" @change="loadRecordings" /></label>
+          <label>탐색 기간
+            <input :value="hasValidSearchTimeRange ? `${formatDate(selectedCondition.searchStart)} ~ ${formatDate(selectedCondition.searchEnd)}` : ''" placeholder="탐색 조건의 시작·종료 시간" readonly />
+          </label>
           <label>녹화
-            <select v-model="form.recordingId">
+            <select v-model="form.recordingId" :disabled="recordingsLoading || !hasValidSearchTimeRange || recordings.length === 0">
               <option value="">녹화 선택</option>
               <option v-for="recording in recordings" :key="recording.id" :value="String(recording.id)">{{ recordingLabel(recording) }}</option>
             </select>
           </label>
-          <button class="search-button" :disabled="submitting" @click="requestSearch">{{ submitting ? "등록 중..." : "탐색 요청" }}</button>
+          <button class="search-button" :disabled="submitting || recordingsLoading || !hasValidSearchTimeRange || !selectedRecording" @click="requestSearch">{{ submitting ? "등록 중..." : "탐색 요청" }}</button>
         </div>
+        <p v-if="selectedCondition && !hasValidSearchTimeRange" class="muted-text">탐색 시작·종료 시간이 필요한 조건입니다.</p>
+        <p v-else-if="recordingsLoading" class="muted-text">탐색 기간과 겹치는 녹화본을 불러오는 중입니다.</p>
+        <p v-else-if="selectedCondition && hasValidSearchTimeRange && recordings.length === 0" class="muted-text">탐색 기간과 겹치는 녹화본이 없습니다.</p>
         <p v-if="selectedRecording" class="muted-text">선택된 녹화: {{ recordingLabel(selectedRecording) }}</p>
       </div>
 

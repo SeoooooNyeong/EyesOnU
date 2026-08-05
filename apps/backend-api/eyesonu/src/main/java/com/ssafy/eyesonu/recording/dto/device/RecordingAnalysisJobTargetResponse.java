@@ -11,18 +11,27 @@ public record RecordingAnalysisJobTargetResponse(
         String cameraCode,
         String cameraName,
         String recordingObjectKey,
+        Instant recordingStart,
+        Instant recordingEnd,
         String prompt,
         String exclusionPrompt,
         Instant searchStart,
         Instant searchEnd,
+        Instant analysisStart,
+        Instant analysisEnd,
         String searchArea,
         int attempt) {
 
-    public static RecordingAnalysisJobTargetResponse from(RecordingAnalysisPublishSnapshot snapshot) {
+    public static RecordingAnalysisJobTargetResponse from(
+            RecordingAnalysisPublishSnapshot snapshot,
+            Instant analysisStart,
+            Instant analysisEnd) {
         return new RecordingAnalysisJobTargetResponse(
                 snapshot.getJobId(), snapshot.getCaseId(), snapshot.getRecordingId(), snapshot.getCameraId(),
                 snapshot.getCameraCode(), snapshot.getCameraName(), snapshot.getRecordingObjectKey(),
+                snapshot.getRecordingStart(), snapshot.getRecordingEnd(),
                 snapshot.getPrompt(), snapshot.getExclusionPrompt(), snapshot.getSearchStart(),
-                snapshot.getSearchEnd(), snapshot.getSearchArea(), snapshot.getAttempt());
+                snapshot.getSearchEnd(), analysisStart, analysisEnd,
+                snapshot.getSearchArea(), snapshot.getAttempt());
     }
 }

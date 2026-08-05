@@ -30,7 +30,8 @@ class RecordingAnalysisJobTargetServiceTests {
 
     @BeforeEach
     void setUp() {
-        service = new RecordingAnalysisJobTargetService(analysisJobMapper);
+        service = new RecordingAnalysisJobTargetService(
+                analysisJobMapper, new RecordingAnalysisTimeRangeCalculator());
     }
 
     @Test
@@ -46,6 +47,10 @@ class RecordingAnalysisJobTargetServiceTests {
         assertEquals("recordings/CAM-001/video.mp4", response.recordingObjectKey());
         assertEquals("a person wearing a black short sleeve top and blue pants", response.prompt());
         assertEquals("a person wearing a red long sleeve top and black pants", response.exclusionPrompt());
+        assertEquals(Instant.parse("2026-08-02T23:45:00Z"), response.recordingStart());
+        assertEquals(Instant.parse("2026-08-03T00:20:00Z"), response.recordingEnd());
+        assertEquals(Instant.parse("2026-08-03T00:00:00Z"), response.analysisStart());
+        assertEquals(Instant.parse("2026-08-03T00:20:00Z"), response.analysisEnd());
         assertEquals(1, response.attempt());
     }
 
@@ -58,6 +63,20 @@ class RecordingAnalysisJobTargetServiceTests {
 
         assertEquals("JOB_NOT_CLAIMED", exception.getCode());
         verify(analysisJobMapper, never()).findRecordingAnalysisPublishSnapshot(eq(JOB_ID), eq(101L));
+    }
+
+    @Test
+    void rejectsLegacyTargetWithoutAValidIntersection() {
+        RecordingAnalysisPublishSnapshot snapshot = snapshot();
+        snapshot.setSearchStart(null);
+        snapshot.setSearchEnd(null);
+        when(analysisJobMapper.findRecordingAnalysisById(JOB_ID)).thenReturn(runningJob());
+        when(analysisJobMapper.findRecordingAnalysisPublishSnapshot(JOB_ID, 101L)).thenReturn(snapshot);
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> service.find(JOB_ID, WORKER_ID));
+
+        assertEquals("BUSINESS_RULE_VIOLATION", exception.getCode());
     }
 
     private AnalysisJob runningJob() {
@@ -78,6 +97,8 @@ class RecordingAnalysisJobTargetServiceTests {
         snapshot.setCameraCode("CAM-001");
         snapshot.setCameraName("Front");
         snapshot.setRecordingObjectKey("recordings/CAM-001/video.mp4");
+        snapshot.setRecordingStart(Instant.parse("2026-08-02T23:45:00Z"));
+        snapshot.setRecordingEnd(Instant.parse("2026-08-03T00:20:00Z"));
         snapshot.setPrompt("a person wearing a black short sleeve top and blue pants");
         snapshot.setExclusionPrompt("a person wearing a red long sleeve top and black pants");
         snapshot.setSearchStart(Instant.parse("2026-08-03T00:00:00Z"));
