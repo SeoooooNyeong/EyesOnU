@@ -3,6 +3,7 @@ package com.ssafy.eyesonu.missingcase.service;
 import com.ssafy.eyesonu.auth.device.MediaServerPrincipal;
 import com.ssafy.eyesonu.camera.domain.Camera;
 import com.ssafy.eyesonu.common.exception.ApiException;
+import com.ssafy.eyesonu.common.logging.LogExecution;
 import com.ssafy.eyesonu.missingcase.domain.CandidateAggregate;
 import com.ssafy.eyesonu.missingcase.domain.CandidateEvent;
 import com.ssafy.eyesonu.missingcase.domain.CandidateEventDetection;
@@ -17,12 +18,15 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CandidateEventCommandService {
+    private static final Logger log = LoggerFactory.getLogger(CandidateEventCommandService.class);
     private final CandidateEventMapper mapper;
     private final CaseQueryService caseQueryService;
     private final CandidateEventAccessValidator accessValidator;
@@ -36,6 +40,7 @@ public class CandidateEventCommandService {
     }
 
     @Transactional
+    @LogExecution
     public CandidateEventCreateResponse createRecordingAnalysis(
             MediaServerPrincipal principal,
             CandidateEventCreateRequest request,
@@ -52,6 +57,7 @@ public class CandidateEventCommandService {
      * validation are performed once instead of once per candidate submission.
      */
     @Transactional
+    @LogExecution
     public List<Long> createRecordingAnalysisBatch(
             MediaServerPrincipal principal,
             List<CandidateEventCreateRequest> requests,
@@ -120,7 +126,15 @@ public class CandidateEventCommandService {
             Camera camera,
             CandidateSourceContext source) {
         CandidateEvent existing = mapper.findEventByEventId(request.eventId());
-        if (existing != null) return duplicateResult(existing, request, camera.id(), source);
+        if (existing != null) {
+            CandidateEventCreateResponse duplicate = duplicateResult(existing, request, camera.id(), source);
+            log.debug(
+                    "business_event=candidate_event_duplicate caseId={} cameraId={} candidateCount={}",
+                    request.caseId(),
+                    camera.id(),
+                    duplicate.detectionCount());
+            return duplicate;
+        }
 
         CandidateEvent event = new CandidateEvent();
         event.setEventId(request.eventId());
@@ -138,7 +152,13 @@ public class CandidateEventCommandService {
                 throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR,
                         "EVENT_ID_UPSERT_FAILED", "Event could not be loaded after upsert");
             }
-            return duplicateResult(concurrent, request, camera.id(), source);
+            CandidateEventCreateResponse duplicate = duplicateResult(concurrent, request, camera.id(), source);
+            log.debug(
+                    "business_event=candidate_event_duplicate caseId={} cameraId={} candidateCount={}",
+                    request.caseId(),
+                    camera.id(),
+                    duplicate.detectionCount());
+            return duplicate;
         }
 
         List<Integer> processingOrder = new ArrayList<>();
@@ -173,6 +193,11 @@ public class CandidateEventCommandService {
             detection.setBoundingBox(boundingBox);
             mapper.insertDetection(detection);
         }
+        log.info(
+                "business_event=candidate_event_registered caseId={} cameraId={} candidateCount={} status=REGISTERED",
+                event.getCaseId(),
+                event.getCameraId(),
+                candidateIds.size());
         return new CandidateEventCreateResponse(event.getEventId(), event.getCaseId(), event.getCameraId(),
                 request.detections().size(), candidateIds, false, event.getCreatedAt() == null ? Instant.now() : event.getCreatedAt());
     }

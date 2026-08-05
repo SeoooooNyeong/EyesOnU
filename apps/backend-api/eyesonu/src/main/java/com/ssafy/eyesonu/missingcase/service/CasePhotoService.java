@@ -1,6 +1,7 @@
 package com.ssafy.eyesonu.missingcase.service;
 
 import com.ssafy.eyesonu.common.exception.ApiException;
+import com.ssafy.eyesonu.common.logging.LogExecution;
 import com.ssafy.eyesonu.missingcase.domain.CasePhotoState;
 import com.ssafy.eyesonu.missingcase.domain.CaseStatus;
 import com.ssafy.eyesonu.missingcase.dto.admin.CasePhotoResponse;
@@ -38,6 +39,7 @@ public class CasePhotoService {
 		this.metadataWriter = metadataWriter;
 	}
 
+	@LogExecution
 	public CasePhotoResponse put(Long caseId, MultipartFile file, Long adminId) {
 		CasePhotoValidator.ValidatedPhoto photo = validator.validate(file);
 		requireUploadAllowed(caseId);
@@ -65,12 +67,18 @@ public class CasePhotoService {
 			throw exception;
 		}
 		if (previousKey != null) deleteBestEffort(previousKey);
+		log.info("business_event=case_photo_uploaded caseId={} status=STORED", caseId);
 		return new CasePhotoResponse(photoUrl);
 	}
 
+	@LogExecution
 	public void delete(Long caseId, Long adminId) {
 		String previousKey = metadataWriter.remove(caseId, adminId);
 		if (previousKey != null) deleteBestEffort(previousKey);
+		log.info(
+				"business_event=case_photo_deleted caseId={} status={}",
+				caseId,
+				previousKey == null ? "NOOP" : "DELETED");
 	}
 
 	private void requireUploadAllowed(Long id) {

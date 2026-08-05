@@ -13,10 +13,13 @@ import com.ssafy.eyesonu.camera.dto.CameraPutRequest;
 import com.ssafy.eyesonu.camera.dto.CameraStreamUrlResponse;
 import com.ssafy.eyesonu.camera.mapper.CameraMapper;
 import com.ssafy.eyesonu.common.exception.ApiException;
+import com.ssafy.eyesonu.common.logging.LogExecution;
 import com.ssafy.eyesonu.mediaserver.mapper.MediaServerMapper;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -27,6 +30,7 @@ public class CameraService {
 
     private static final int MAX_SIZE = 100;
     private static final String DEFAULT_SORT = "createdAt,desc";
+    private static final Logger log = LoggerFactory.getLogger(CameraService.class);
 
     private final CameraMapper cameraMapper;
     private final MediaServerMapper mediaServerMapper;
@@ -64,6 +68,13 @@ public class CameraService {
                 .stream()
                 .map(CameraListResponse::from)
                 .toList();
+        log.debug(
+                "camera_page_queried status={} page={} size={} resultCount={} totalCount={}",
+                normalizedStatus,
+                page,
+                size,
+                cameras.size(),
+                totalElements);
         return new CameraPageResult(cameras, page, size, totalElements, totalPages, sortSpec.externalValue());
     }
 
@@ -88,6 +99,7 @@ public class CameraService {
     }
 
     @Transactional
+    @LogExecution
     public CameraDetailResponse create(Long adminId, CameraCreateRequest request) {
         String cameraCode = normalizeRequired(request.cameraCode());
         String cameraName = normalizeRequired(request.cameraName());
@@ -127,10 +139,16 @@ public class CameraService {
                         "cameraName", created.cameraName(),
                         "mediaServerId", created.mediaServerId(),
                         "status", created.status()));
+        log.info(
+                "business_event=camera_created cameraId={} mediaServerId={} status={}",
+                created.id(),
+                created.mediaServerId(),
+                created.status());
         return CameraDetailResponse.from(created);
     }
 
     @Transactional
+    @LogExecution
     public CameraDetailResponse patchName(Long adminId, Long cameraId, CameraNamePatchRequest request) {
         CameraManagementRow before = lockCamera(cameraId);
         String cameraName = normalizeRequired(request.cameraName());
@@ -145,10 +163,12 @@ public class CameraService {
                 "CAMERA",
                 cameraId,
                 Map.of("beforeName", before.cameraName(), "afterName", after.cameraName()));
+        log.info("business_event=camera_updated cameraId={} status={}", cameraId, after.status());
         return CameraDetailResponse.from(after);
     }
 
     @Transactional
+    @LogExecution
     public CameraDetailResponse replace(Long adminId, Long cameraId, CameraPutRequest request) {
         CameraManagementRow before = lockCamera(cameraId);
         ensureMediaServerExists(request.mediaServerId());
@@ -176,6 +196,11 @@ public class CameraService {
                         "beforeName", before.cameraName(),
                         "afterName", after.cameraName(),
                         "cameraCode", after.cameraCode()));
+        log.info(
+                "business_event=camera_updated cameraId={} mediaServerId={} status={}",
+                cameraId,
+                after.mediaServerId(),
+                after.status());
         return CameraDetailResponse.from(after);
     }
 

@@ -1,6 +1,7 @@
 package com.ssafy.eyesonu.recording.messaging;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -17,6 +18,9 @@ import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import jakarta.annotation.PreDestroy;
 
 @Component
@@ -30,6 +34,8 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
     public static final String DEAD_LETTER_QUEUE = QUEUE + ".dlq";
     public static final String DEAD_LETTER_ROUTING_KEY = ROUTING_KEY + ".dlq";
     private static final long CONFIRM_TIMEOUT_SECONDS = 5L;
+    private static final String TRACE_ID_MDC_KEY = "traceId";
+    private static final Logger log = LoggerFactory.getLogger(RecordingAnalysisJobPublisher.class);
 
     private final RabbitTemplate rabbitTemplate;
     private final RecordingAnalysisOutboxMapper outboxMapper;
@@ -88,6 +94,10 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
         outbox.setAttempt(snapshot.getAttempt());
         outbox.setOccurredAt(Instant.now());
         outboxMapper.insert(outbox);
+        log.info(
+                "business_event=analysis_job_message_queued jobId={} caseId={} status=QUEUED",
+                outbox.getJobId(),
+                outbox.getCaseId());
     }
 
     public void publishPending() {
@@ -97,10 +107,14 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
                 return;
             }
             RecordingAnalysisOutbox outbox = claimed.outbox();
+            Map<String, String> previousContext = MDC.getCopyOfContextMap();
+            MDC.put(TRACE_ID_MDC_KEY, UUID.randomUUID().toString());
+            long startedAt = System.nanoTime();
             AtomicBoolean leaseOwned = new AtomicBoolean(true);
-            ScheduledFuture<?> heartbeat = startHeartbeat(
-                    outbox, claimed.claimToken(), leaseOwned);
+            ScheduledFuture<?> heartbeat = null;
             try {
+                heartbeat = startHeartbeat(
+                        outbox, claimed.claimToken(), leaseOwned);
                 RecordingAnalysisJobEvent event = new RecordingAnalysisJobEvent(
                         outbox.getCommandId(), outbox.getEventType(), outbox.getJobId(),
                         outbox.getCaseId(), outbox.getRecordingId(), outbox.getCameraId(),
@@ -115,20 +129,53 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
                 ensureLeaseOwned(leaseOwned);
                 awaitBrokerAcceptance(correlationData, leaseOwned);
                 outboxMapper.markPublished(outbox.getId(), claimed.claimToken(), Instant.now());
+                log.info(
+                        "business_event=analysis_job_message_published jobId={} caseId={} status=PUBLISHED elapsedMs={}",
+                        outbox.getJobId(),
+                        outbox.getCaseId(),
+                        elapsedMillis(startedAt));
             } catch (LeaseOwnershipLostException exception) {
+                log.debug(
+                        "analysis_job_message_publish_skipped jobId={} caseId={} status=LEASE_LOST",
+                        outbox.getJobId(),
+                        outbox.getCaseId());
                 return;
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
                 outboxMapper.markFailed(
                         outbox.getId(), claimed.claimToken(),
                         "RabbitMQ publisher confirm was interrupted");
+                log.warn(
+                        "analysis_job_message_publish_interrupted jobId={} caseId={} status=RETRY elapsedMs={}",
+                        outbox.getJobId(),
+                        outbox.getCaseId(),
+                        elapsedMillis(startedAt),
+                        exception);
                 return;
             } catch (Exception exception) {
                 outboxMapper.markFailed(
                         outbox.getId(), claimed.claimToken(), failureMessage(exception));
+                log.error(
+                        "analysis_job_message_publish_failed jobId={} caseId={} status=RETRY elapsedMs={}",
+                        outbox.getJobId(),
+                        outbox.getCaseId(),
+                        elapsedMillis(startedAt),
+                        exception);
             } finally {
-                heartbeat.cancel(false);
+                if (heartbeat != null) {
+                    heartbeat.cancel(false);
+                }
+                MDC.remove(TRACE_ID_MDC_KEY);
+                restoreMdc(previousContext);
             }
+        }
+    }
+
+    private void restoreMdc(Map<String, String> previousContext) {
+        if (previousContext == null || previousContext.isEmpty()) {
+            MDC.clear();
+        } else {
+            MDC.setContextMap(previousContext);
         }
     }
 
@@ -138,11 +185,11 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
             AtomicBoolean leaseOwned) {
         renewLease(outbox.getId(), claimToken, leaseOwned);
         if (!leaseOwned.get()) {
-            return heartbeatExecutor().schedule(() -> { }, 0, TimeUnit.MILLISECONDS);
+            return heartbeatExecutor().schedule(withMdc(() -> { }), 0, TimeUnit.MILLISECONDS);
         }
         long intervalSeconds = Math.max(1L, claimLeaseSeconds / 3L);
         return heartbeatExecutor().scheduleAtFixedRate(
-                () -> renewLease(outbox.getId(), claimToken, leaseOwned),
+                withMdc(() -> renewLease(outbox.getId(), claimToken, leaseOwned)),
                 intervalSeconds,
                 intervalSeconds,
                 TimeUnit.SECONDS);
@@ -169,10 +216,40 @@ public class RecordingAnalysisJobPublisher implements AutoCloseable {
                     Instant.now().plusSeconds(claimLeaseSeconds));
             if (renewed != 1) {
                 leaseOwned.set(false);
+                log.debug("analysis_job_outbox_lease_lost outboxId={} status=LEASE_LOST", outboxId);
             }
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException exception) {
             leaseOwned.set(false);
+            log.warn(
+                    "analysis_job_outbox_lease_renewal_failed outboxId={} status=LEASE_LOST",
+                    outboxId,
+                    exception);
         }
+    }
+
+    private Runnable withMdc(Runnable task) {
+        Map<String, String> capturedContext = MDC.getCopyOfContextMap();
+        return () -> {
+            Map<String, String> previousContext = MDC.getCopyOfContextMap();
+            try {
+                if (capturedContext == null || capturedContext.isEmpty()) {
+                    MDC.clear();
+                } else {
+                    MDC.setContextMap(capturedContext);
+                }
+                task.run();
+            } finally {
+                if (previousContext == null || previousContext.isEmpty()) {
+                    MDC.clear();
+                } else {
+                    MDC.setContextMap(previousContext);
+                }
+            }
+        };
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     private void awaitBrokerAcceptance(

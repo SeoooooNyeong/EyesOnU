@@ -3,6 +3,7 @@ package com.ssafy.eyesonu.recording.service;
 import com.ssafy.eyesonu.auth.device.MediaServerPrincipal;
 import com.ssafy.eyesonu.audit.service.AuditService;
 import com.ssafy.eyesonu.common.exception.ApiException;
+import com.ssafy.eyesonu.common.logging.LogExecution;
 import com.ssafy.eyesonu.missingcase.dto.device.CandidateEventCreateRequest;
 import com.ssafy.eyesonu.missingcase.dto.device.CandidateEventCreateResponse;
 import com.ssafy.eyesonu.missingcase.service.CandidateEventCommandService;
@@ -15,6 +16,8 @@ import com.ssafy.eyesonu.recording.domain.Recording;
 import com.ssafy.eyesonu.recording.mapper.AnalysisJobMapper;
 import com.ssafy.eyesonu.recording.mapper.RecordingMapper;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -24,6 +27,7 @@ public class RecordingAnalysisJobResultService {
 
     private static final String RUNNING = "RUNNING";
     private static final String SUCCEEDED = "SUCCEEDED";
+    private static final Logger log = LoggerFactory.getLogger(RecordingAnalysisJobResultService.class);
 
     private final AnalysisJobMapper analysisJobMapper;
     private final CandidateEventCommandService candidateEventCommandService;
@@ -50,6 +54,7 @@ public class RecordingAnalysisJobResultService {
         this.objectKeyFactory = objectKeyFactory;
     }
 
+    @LogExecution
     public RecordingAnalysisJobResultResponse complete(
             MediaServerPrincipal principal, Long jobId, CandidateEventCreateRequest request) {
         ValidatedJob validated = validateJob(principal, jobId, request);
@@ -76,6 +81,14 @@ public class RecordingAnalysisJobResultService {
         auditService.recordRequired(
                 "RECORDING_ANALYSIS_JOB_SUCCEEDED", null, job.getCaseId(), "ANALYSIS_JOB", jobId,
                 Map.of("mediaServerId", principal.mediaServerId(), "candidateEventId", candidateResult.eventId()));
+        log.info(
+                "business_event=analysis_job_completed caseId={} jobId={} recordingId={} mediaServerId={} candidateEventId={} status={}",
+                job.getCaseId(),
+                jobId,
+                job.getRecordingId(),
+                principal.mediaServerId(),
+                candidateResult.eventId(),
+                job.getStatus());
         return new RecordingAnalysisJobResultResponse(
                 RecordingAnalysisJobResponse.from(job), candidateResult);
     }
