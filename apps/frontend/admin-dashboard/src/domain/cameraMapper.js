@@ -1,7 +1,5 @@
 import { formatKstDateTime } from "./caseMapper";
 
-const DEFAULT_MEDIA_STREAM_BASE_URL = "http://70.12.108.93:8888";
-
 export function toUiCameraStatus(status) {
   const normalized = String(status ?? "").trim().toUpperCase();
   if (["ONLINE", "OFFLINE", "ERROR"].includes(normalized)) {
@@ -29,18 +27,71 @@ export function mapCamera(source = {}) {
   };
 }
 
-export function buildCameraPlaybackUrl(cameraCode, baseUrl) {
-  const normalizedCode = String(cameraCode ?? "").trim();
-  if (!normalizedCode) throw new TypeError("카메라 코드가 필요합니다.");
+const decodeCredential = (value) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new TypeError("스트림 URL 인증정보의 인코딩이 올바르지 않습니다.");
+  }
+};
 
-  const configuredBaseUrl = [
-    baseUrl,
-    import.meta.env.VITE_MEDIA_STREAM_BASE_URL,
-    DEFAULT_MEDIA_STREAM_BASE_URL
-  ].map((candidate) => String(candidate ?? "").trim())
-    .find(Boolean)
-    ?.replace(/\/+$/, "");
-  if (!configuredBaseUrl) throw new TypeError("미디어 스트림 기본 URL이 필요합니다.");
+const encodeBasicCredentials = (username, password) => {
+  const bytes = new TextEncoder().encode(`${username}:${password}`);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return `Basic ${btoa(binary)}`;
+};
 
-  return `${configuredBaseUrl}/${encodeURIComponent(normalizedCode)}/index.m3u8`;
+const appendPath = (baseUrl, path, search) => {
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}${search}`;
+};
+
+export function buildCameraPlaybackSource(streamUrl, baseUrl) {
+  const normalizedStreamUrl = String(streamUrl ?? "").trim();
+  if (!normalizedStreamUrl) throw new TypeError("스트림 URL이 필요합니다.");
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(normalizedStreamUrl);
+  } catch {
+    throw new TypeError("스트림 URL 형식이 올바르지 않습니다.");
+  }
+
+  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+    throw new TypeError("HLS 스트림 URL은 HTTP 또는 HTTPS 형식이어야 합니다.");
+  }
+
+  const hasCredentials = Boolean(parsedUrl.username || parsedUrl.password);
+  const authorization = hasCredentials
+    ? encodeBasicCredentials(
+        decodeCredential(parsedUrl.username),
+        decodeCredential(parsedUrl.password)
+      )
+    : null;
+
+  parsedUrl.username = "";
+  parsedUrl.password = "";
+  parsedUrl.hash = "";
+
+  const trimmedPath = parsedUrl.pathname.replace(/\/+$/, "");
+  const playlistPath = /\.m3u8$/i.test(trimmedPath)
+    ? trimmedPath
+    : `${trimmedPath}/index.m3u8`;
+  const configuredBaseUrl = [baseUrl, import.meta.env.VITE_MEDIA_STREAM_BASE_URL]
+    .map((candidate) => String(candidate ?? "").trim())
+    .find(Boolean);
+
+  if (configuredBaseUrl) {
+    return {
+      url: appendPath(configuredBaseUrl, playlistPath, parsedUrl.search),
+      authorization
+    };
+  }
+
+  parsedUrl.pathname = playlistPath;
+  return { url: parsedUrl.toString(), authorization };
 }

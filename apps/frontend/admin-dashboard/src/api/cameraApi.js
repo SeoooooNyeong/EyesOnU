@@ -19,6 +19,10 @@ export async function getCamera(cameraId) {
   return unwrapData(await apiClient.get(cameraPath(cameraId)));
 }
 
+export async function getCameraStreamUrl(cameraId) {
+  return unwrapData(await apiClient.get(cameraPath(cameraId, "/streamUrl")));
+}
+
 export async function updateCameraName(cameraId, cameraName) {
   return unwrapData(await apiClient.patch(cameraPath(cameraId, "/name"), { cameraName }));
 }

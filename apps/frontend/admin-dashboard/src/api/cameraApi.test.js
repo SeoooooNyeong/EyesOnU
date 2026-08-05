@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createCamera,
   getCamera,
+  getCameraStreamUrl,
   listCameras,
   listMediaServerOptions,
   updateCameraName
@@ -66,6 +67,21 @@ describe("cameraApi", () => {
       "patch /admin/cameras/7/name"
     ]);
     expect(JSON.parse(adapter.mock.calls[1][0].data)).toEqual({ cameraName: "변경 이름" });
+  });
+
+  it("loads the protected stream URL from the dedicated camera endpoint", async () => {
+    const adapter = vi.fn(async (config) => response(config, {
+      data: { streamUrl: "http://viewer:secret@media.example:8888/camera-07" }
+    }));
+    apiClient.defaults.adapter = adapter;
+
+    await expect(getCameraStreamUrl(7)).resolves.toEqual({
+      streamUrl: "http://viewer:secret@media.example:8888/camera-07"
+    });
+    expect(adapter.mock.calls[0][0]).toMatchObject({
+      method: "get",
+      url: "/admin/cameras/7/streamUrl"
+    });
   });
 
   it("unwraps the safe Media Server option list", async () => {

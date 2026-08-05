@@ -1,8 +1,14 @@
 import { createApp, nextTick } from "vue";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listCamerasMock } = vi.hoisted(() => ({ listCamerasMock: vi.fn() }));
-vi.mock("../api/cameraApi", () => ({ listCameras: listCamerasMock }));
+const { getCameraStreamUrlMock, listCamerasMock } = vi.hoisted(() => ({
+  getCameraStreamUrlMock: vi.fn(),
+  listCamerasMock: vi.fn()
+}));
+vi.mock("../api/cameraApi", () => ({
+  getCameraStreamUrl: getCameraStreamUrlMock,
+  listCameras: listCamerasMock
+}));
 
 import LiveMonitoringView from "./LiveMonitoringView.vue";
 
@@ -43,6 +49,14 @@ describe("LiveMonitoringView", () => {
     app.mount(root);
   };
 
+  beforeEach(() => {
+    getCameraStreamUrlMock.mockReset();
+    listCamerasMock.mockReset();
+    getCameraStreamUrlMock.mockImplementation(async (cameraId) => ({
+      streamUrl: `http://webviewer:test-secret@media.example:8888/camera-${String(cameraId).padStart(2, "0")}`
+    }));
+  });
+
   afterEach(() => {
     app?.unmount();
     root?.remove();
@@ -58,10 +72,28 @@ describe("LiveMonitoringView", () => {
     await settle();
 
     expect(listCamerasMock).toHaveBeenCalledWith({ page: 0, size: 4, sort: "cameraCode,asc" });
+    expect(getCameraStreamUrlMock).toHaveBeenCalledTimes(2);
     expect(root.querySelectorAll(".live-stream-card")).toHaveLength(4);
     expect(root.querySelectorAll(".empty-camera-slot")).toHaveLength(2);
     expect(root.querySelectorAll("video")).toHaveLength(2);
     expect(root.querySelectorAll("iframe")).toHaveLength(0);
+  });
+
+  it("isolates a stream URL failure to the affected camera", async () => {
+    listCamerasMock.mockResolvedValue(result([
+      rawCamera(1, "camera-01"),
+      rawCamera(2, "camera-02")
+    ]));
+    getCameraStreamUrlMock.mockImplementation(async (cameraId) => {
+      if (cameraId === 2) throw new Error("스트림 URL 조회 오류");
+      return { streamUrl: "http://webviewer:test-secret@media.example:8888/camera-01" };
+    });
+    mount();
+    await settle();
+
+    expect(root.querySelectorAll("video")).toHaveLength(1);
+    expect(root.textContent).toContain("스트림 URL 조회 오류");
+    expect(root.querySelectorAll(".live-stream-card")).toHaveLength(4);
   });
 
   it("shows API DB status separately from player state", async () => {
@@ -120,11 +152,11 @@ describe("LiveMonitoringView", () => {
     mount();
     await settle();
 
-    const iframe = root.querySelector("iframe");
+    const video = root.querySelector("video");
     await vi.advanceTimersByTimeAsync(10_000);
     await settle();
 
-    expect(root.querySelector("iframe")).toBe(iframe);
+    expect(root.querySelector("video")).toBe(video);
     root.querySelector('button[aria-label="카메라 정보"]').click();
     await settle();
     expect(root.textContent).toContain("ONLINE");

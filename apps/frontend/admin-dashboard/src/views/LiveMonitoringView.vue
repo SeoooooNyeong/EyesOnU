@@ -1,9 +1,9 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { Grid2X2, Minimize2 } from "lucide-vue-next";
-import { listCameras } from "../api/cameraApi";
+import { getCameraStreamUrl, listCameras } from "../api/cameraApi";
 import LiveStreamPlayer from "../components/LiveStreamPlayer.vue";
-import { buildCameraPlaybackUrl, mapCamera } from "../domain/cameraMapper";
+import { buildCameraPlaybackSource, mapCamera } from "../domain/cameraMapper";
 import { CAMERA_POLL_INTERVAL_MS } from "../config/cameraPolling";
 
 const createEmptySlots = () => Array.from({ length: 4 }, (_, index) => ({
@@ -27,7 +27,6 @@ const reconcileStreams = (cameras) => {
   const nextCameras = cameras.map((camera) => ({
     ...camera,
     protocol: "HLS",
-    url: buildCameraPlaybackUrl(camera.cameraCode),
     empty: false
   }));
   const nextStreams = [...nextCameras, ...createEmptySlots()].slice(0, 4).map((candidate) => {
@@ -44,10 +43,29 @@ const reconcileStreams = (cameras) => {
     if (!activeIds.has(String(streamId))) delete playbackStates.value[streamId];
   });
   cameras.forEach((camera) => {
-    if (!playbackStates.value[camera.id]) playbackStates.value[camera.id] = "loading";
+    if (camera.streamError) playbackStates.value[camera.id] = "error";
+    else if (!playbackStates.value[camera.id]) playbackStates.value[camera.id] = "loading";
   });
   if (openedInfoId.value !== null && !activeIds.has(String(openedInfoId.value))) {
     openedInfoId.value = null;
+  }
+};
+
+const loadPlaybackSource = async (camera) => {
+  try {
+    const response = await getCameraStreamUrl(camera.id);
+    return {
+      ...camera,
+      ...buildCameraPlaybackSource(response?.streamUrl),
+      streamError: ""
+    };
+  } catch (cause) {
+    return {
+      ...camera,
+      url: "",
+      authorization: null,
+      streamError: cause?.message || "스트림 URL을 불러오지 못했습니다."
+    };
   }
 };
 
@@ -64,9 +82,11 @@ const load = async ({ silent = false } = {}) => {
   try {
     const result = await listCameras({ page: 0, size: 4, sort: "cameraCode,asc" });
     if (requestId !== latestRequestId) return;
-    error.value = "";
     const cameras = (result.data || []).map(mapCamera);
-    reconcileStreams(cameras);
+    const camerasWithPlayback = await Promise.all(cameras.map(loadPlaybackSource));
+    if (requestId !== latestRequestId) return;
+    error.value = "";
+    reconcileStreams(camerasWithPlayback);
   } catch (cause) {
     if (requestId !== latestRequestId) return;
     if (!silent) {
@@ -147,11 +167,16 @@ onBeforeUnmount(() => {
         <template v-else>
           <div class="live-stream-frame">
             <LiveStreamPlayer
+              v-if="!stream.streamError"
               :protocol="stream.protocol"
               :url="stream.url"
+              :authorization="stream.authorization"
               @info="toggleInfo(stream.id)"
               @state-change="setPlaybackState(stream.id, $event)"
             />
+            <div v-else class="stream-loading stream-error">
+              {{ stream.streamError }}
+            </div>
             <div class="stream-label"><strong>{{ stream.cameraName }}</strong></div>
             <div class="stream-playback-state" :class="playbackStates[stream.id]">
               {{ playbackStateLabel(stream.id) }}

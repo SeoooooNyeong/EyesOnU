@@ -4,13 +4,14 @@ import { useRoute, useRouter } from "vue-router";
 import {
   createCamera,
   getCamera,
+  getCameraStreamUrl,
   listMediaServerOptions,
   updateCameraName
 } from "../api/cameraApi";
 import LiveStreamPlayer from "../components/LiveStreamPlayer.vue";
 import StateBlock from "../components/common/StateBlock.vue";
 import StatusBadge from "../components/common/StatusBadge.vue";
-import { buildCameraPlaybackUrl, mapCamera } from "../domain/cameraMapper";
+import { buildCameraPlaybackSource, mapCamera } from "../domain/cameraMapper";
 
 const router = useRouter();
 const route = useRoute();
@@ -48,13 +49,14 @@ const operationError = ref("");
 const nameError = ref("");
 const streamTestOpen = ref(false);
 const playbackState = ref("loading");
+const playbackUrl = ref("");
+const playbackAuthorization = ref(null);
+const streamLoading = ref(false);
+const streamError = ref("");
 let loadRequestId = 0;
 let optionsRequestId = 0;
 let submitRequestId = 0;
-
-const playbackUrl = computed(() => item.value?.cameraCode
-  ? buildCameraPlaybackUrl(item.value.cameraCode)
-  : "");
+let streamRequestId = 0;
 
 const clearCreateFieldError = (field) => {
   createErrors[field] = "";
@@ -248,12 +250,46 @@ const saveEdit = async () => {
   }
 };
 
-const openStreamTest = () => {
+const closeStreamTest = () => {
+  streamRequestId += 1;
+  streamTestOpen.value = false;
+  streamLoading.value = false;
+  streamError.value = "";
+  playbackUrl.value = "";
+  playbackAuthorization.value = null;
+};
+
+const openStreamTest = async () => {
+  if (!item.value) return;
+
+  const cameraId = String(route.params.cameraId);
+  const requestId = ++streamRequestId;
   playbackState.value = "loading";
+  playbackUrl.value = "";
+  playbackAuthorization.value = null;
+  streamError.value = "";
+  streamLoading.value = true;
   streamTestOpen.value = true;
+
+  try {
+    const response = await getCameraStreamUrl(cameraId);
+    const source = buildCameraPlaybackSource(response?.streamUrl);
+    if (requestId !== streamRequestId || String(route.params.cameraId) !== cameraId) return;
+    playbackUrl.value = source.url;
+    playbackAuthorization.value = source.authorization;
+  } catch (cause) {
+    if (requestId !== streamRequestId || String(route.params.cameraId) !== cameraId) return;
+    playbackState.value = "error";
+    streamError.value = cause?.message || "스트림 URL을 불러오지 못했습니다.";
+  } finally {
+    if (requestId === streamRequestId && String(route.params.cameraId) === cameraId) {
+      streamLoading.value = false;
+    }
+  }
 };
 
 watch(() => route.params.cameraId, () => {
+  closeStreamTest();
   submitRequestId += 1;
   submitting.value = false;
   load();
@@ -262,6 +298,7 @@ onBeforeUnmount(() => {
   loadRequestId += 1;
   optionsRequestId += 1;
   submitRequestId += 1;
+  streamRequestId += 1;
 });
 </script>
 
@@ -456,14 +493,25 @@ onBeforeUnmount(() => {
       </div>
     </StateBlock>
 
-    <div v-if="streamTestOpen" class="modal-backdrop" @click.self="streamTestOpen = false">
+    <div v-if="streamTestOpen" class="modal-backdrop" @click.self="closeStreamTest">
       <section class="modal stream-test-modal">
         <div class="section-heading">
           <div><h3>실시간 스트림 미리보기</h3><p>DB 상태와 별개로 MediaMTX 재생 화면을 확인합니다.</p></div>
-          <button class="ghost-button" type="button" @click="streamTestOpen = false">닫기</button>
+          <button class="ghost-button" type="button" @click="closeStreamTest">닫기</button>
         </div>
         <div class="stream-preview camera-stream-preview">
-          <LiveStreamPlayer protocol="HLS" :url="playbackUrl" @state-change="playbackState = $event" />
+          <div v-if="streamLoading" class="stream-loading">스트림 URL을 불러오는 중입니다...</div>
+          <div v-else-if="streamError" class="stream-loading stream-error">
+            {{ streamError }}
+            <button type="button" @click="openStreamTest">다시 연결</button>
+          </div>
+          <LiveStreamPlayer
+            v-else-if="playbackUrl"
+            protocol="HLS"
+            :url="playbackUrl"
+            :authorization="playbackAuthorization"
+            @state-change="playbackState = $event"
+          />
         </div>
         <div class="stream-signal">
           <div class="signal-bars"><i v-for="level in 4" :key="level" :class="{ active: playbackState === 'ready' }" :style="{ height: `${level * 7}px` }" /></div>

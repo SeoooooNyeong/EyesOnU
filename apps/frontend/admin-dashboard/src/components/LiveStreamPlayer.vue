@@ -7,7 +7,8 @@ const emit = defineEmits(["info", "state-change"]);
 
 const props = defineProps({
   protocol: { type: String, required: true },
-  url: { type: String, required: true }
+  url: { type: String, required: true },
+  authorization: { type: String, default: null }
 });
 
 const videoRef = ref(null);
@@ -65,6 +66,38 @@ const startHls = async () => {
 
   disposeHls();
 
+  if (Hls.isSupported()) {
+    const config = props.authorization
+      ? {
+          xhrSetup: (xhr) => {
+            xhr.setRequestHeader("Authorization", props.authorization);
+          }
+        }
+      : {};
+
+    hls = new Hls(config);
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (data.fatal) {
+        const status = data.response?.code ?? data.networkDetails?.status ?? null;
+        console.error(
+          `[HLS] fatal ${data.details}${status ? ` (${status})` : ""}; auth=${Boolean(props.authorization)}`
+        );
+        setState("error");
+        disposeHls();
+      }
+    });
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.play().catch(() => setState("error"));
+    });
+    hls.loadSource(props.url);
+    hls.attachMedia(video);
+    return;
+  }
+
+  if (props.authorization) {
+    throw new Error("인증 HLS 스트림은 HLS.js 지원 브라우저에서만 재생할 수 있습니다.");
+  }
+
   if (video.canPlayType("application/vnd.apple.mpegurl")) {
     video.src = props.url;
     try {
@@ -75,22 +108,7 @@ const startHls = async () => {
     return;
   }
 
-  if (!Hls.isSupported()) {
-    throw new Error("HLS를 재생할 수 없는 브라우저입니다.");
-  }
-
-  hls = new Hls();
-  hls.on(Hls.Events.ERROR, (_event, data) => {
-    if (data.fatal) {
-      setState("error");
-      disposeHls();
-    }
-  });
-  hls.on(Hls.Events.MANIFEST_PARSED, () => {
-    video.play().catch(() => setState("error"));
-  });
-  hls.loadSource(props.url);
-  hls.attachMedia(video);
+  throw new Error("HLS를 재생할 수 없는 브라우저입니다.");
 };
 
 const startWebRtc = async () => {
@@ -141,7 +159,7 @@ const start = async () => {
   }
 };
 
-watch(() => props.url, () => {
+watch(() => [props.url, props.authorization], () => {
   start();
 });
 

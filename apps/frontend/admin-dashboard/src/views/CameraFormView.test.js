@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   createCameraMock,
   getCameraMock,
+  getCameraStreamUrlMock,
   listMediaServerOptionsMock,
   updateCameraNameMock,
   routerPushMock,
@@ -12,6 +13,7 @@ const {
 } = vi.hoisted(() => ({
   createCameraMock: vi.fn(),
   getCameraMock: vi.fn(),
+  getCameraStreamUrlMock: vi.fn(),
   listMediaServerOptionsMock: vi.fn(),
   updateCameraNameMock: vi.fn(),
   routerPushMock: vi.fn(),
@@ -22,6 +24,7 @@ const {
 vi.mock("../api/cameraApi", () => ({
   createCamera: createCameraMock,
   getCamera: getCameraMock,
+  getCameraStreamUrl: getCameraStreamUrlMock,
   listMediaServerOptions: listMediaServerOptionsMock,
   updateCameraName: updateCameraNameMock
 }));
@@ -30,7 +33,7 @@ vi.mock("vue-router", () => ({
   useRouter: () => ({ push: routerPushMock, back: routerBackMock })
 }));
 vi.mock("../components/LiveStreamPlayer.vue", () => ({
-  default: { props: ["protocol", "url"], emits: ["state-change"], render: () => null }
+  default: { props: ["protocol", "url", "authorization"], emits: ["state-change"], render: () => null }
 }));
 
 import CameraFormView from "./CameraFormView.vue";
@@ -103,12 +106,16 @@ describe("CameraFormView", () => {
   beforeEach(() => {
     createCameraMock.mockReset();
     getCameraMock.mockReset();
+    getCameraStreamUrlMock.mockReset();
     listMediaServerOptionsMock.mockReset();
     updateCameraNameMock.mockReset();
     routerPushMock.mockReset();
     routerBackMock.mockReset();
     route.params.cameraId = "7";
     listMediaServerOptionsMock.mockResolvedValue(mediaServerOptions);
+    getCameraStreamUrlMock.mockResolvedValue({
+      streamUrl: "http://webviewer:test-secret@media.example:8888/camera-07"
+    });
     routerPushMock.mockResolvedValue(undefined);
   });
 
@@ -128,6 +135,42 @@ describe("CameraFormView", () => {
     expect(readonlyValues).toContain("RPI5 Media (rpi5-media-01)");
     expect(readonlyValues.length).toBeGreaterThanOrEqual(5);
     expect(root.querySelector("input:not([disabled])").value).toBe("Camera 07");
+  });
+
+  it("loads the DB stream URL only after opening the preview", async () => {
+    getCameraMock.mockResolvedValue(rawCamera());
+    mount();
+    await settle();
+
+    expect(getCameraStreamUrlMock).not.toHaveBeenCalled();
+    [...root.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("실시간 스트림 미리보기"))
+      .click();
+    await settle();
+
+    expect(getCameraStreamUrlMock).toHaveBeenCalledOnce();
+    expect(getCameraStreamUrlMock).toHaveBeenCalledWith("7");
+    expect(root.querySelector(".stream-test-modal")).not.toBeNull();
+    expect(root.textContent).not.toContain("test-secret");
+  });
+
+  it("shows a retry action when the stream URL cannot be loaded", async () => {
+    getCameraMock.mockResolvedValue(rawCamera());
+    getCameraStreamUrlMock.mockRejectedValue(new Error("스트림 URL 조회 오류"));
+    mount();
+    await settle();
+
+    [...root.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("실시간 스트림 미리보기"))
+      .click();
+    await settle();
+
+    expect(root.textContent).toContain("스트림 URL 조회 오류");
+    [...root.querySelectorAll("button")]
+      .find((button) => button.textContent.includes("다시 연결"))
+      .click();
+    await settle();
+    expect(getCameraStreamUrlMock).toHaveBeenCalledTimes(2);
   });
 
   it("sends only a changed name and prevents duplicate saves", async () => {
