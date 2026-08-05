@@ -1,0 +1,32 @@
+# Recordings and test captures
+recordings/
+*.mp4
+*.m4s
+*.jpg
+
+# Downloaded binaries and archives
+mediamtx
+mediamtx.exe
+*.tar.gz
+
+# Logs and local secrets
+*.log
+.env
+.env.*
+*.key
+*.pem
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# MinIO credentials and runtime configuration
+config/mediamtx-uploader.env
+/etc/default/mediamtx-uploader
+
+# MediaMTX runtime data
+upload-queue/
+.mc/
+*.part

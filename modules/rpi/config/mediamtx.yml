@@ -1,0 +1,113 @@
+logLevel: info
+
+authMethod: internal
+
+authInternalUsers:
+  # Larix 카메라 1
+  - user: camera01pub
+    pass: "CAMERA01_PASSWORD"
+    ips: []
+    permissions:
+      - action: publish
+        path: camera-01
+
+  # Larix 카메라 2
+  - user: camera02pub
+    pass: "CAMERA02_PASSWORD"
+    ips: []
+    permissions:
+      - action: publish
+        path: camera-02
+
+  # Larix 카메라 3
+  - user: camera03pub
+    pass: "CAMERA03_PASSWORD"
+    ips: []
+    permissions:
+      - action: publish
+        path: camera-03
+
+  # Raspberry Pi 4 USB 웹캠
+  - user: camera04pub
+    pass: "CAMERA04_PASSWORD"
+    ips: []
+    permissions:
+      - action: publish
+        path: camera-04
+
+  # Jetson AI 추론
+  - user: jetsonreader
+    pass: "JETSON_READER_PASSWORD"
+    ips: []
+    permissions:
+      - action: read
+        path: ~^camera-(01|02|03|04)$
+
+  # 브라우저 실시간 관제
+  - user: webviewer
+    pass: "WEB_VIEWER_PASSWORD"
+    ips: []
+    permissions:
+      - action: read
+        path: ~^camera-(01|02|03|04)$
+
+  # Pi 5 내부 관리 API와 Metrics
+  - user: localadmin
+    pass: "LOCAL_ADMIN_PASSWORD"
+    ips:
+      - 127.0.0.1/32
+      - ::1/128
+    permissions:
+      - action: api
+      - action: metrics
+      - action: pprof
+
+# Camera publishers and internal AI readers use RTSP.
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+# Browser playback protocols.
+hls: true
+hlsAddress: :8888
+hlsVariant: lowLatency
+
+# Browser playback uses one-way LL-HLS only.
+webrtc: false
+
+# Larix can publish through SRT when classroom Wi-Fi is unstable.
+# RTSP/TCP remains the default protocol for the first integration test.
+rtmp: false
+srt: true
+srtAddress: :8890
+moq: false
+
+# Keep management endpoints on the Pi itself.
+api: true
+apiAddress: 127.0.0.1:9997
+metrics: true
+metricsAddress: 127.0.0.1:9998
+
+pathDefaults:
+  source: publisher
+  overridePublisher: false
+
+  # Store the incoming H.264 stream without re-encoding it.
+  record: true
+  recordPath: /var/lib/mediamtx/recordings/%path/%Y/%m/%d/%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordMaxPartSize: 50M
+  recordSegmentDuration: 30s
+  recordDeleteAfter: 24h
+
+  # Queue each finalized segment for upload through a backend-issued URL.
+  # Upload failures do not block MediaMTX recording.
+  runOnRecordSegmentComplete: /usr/local/lib/mediamtx/queue-recording-upload.sh
+
+# One publisher is allowed on each fixed camera path.
+paths:
+  camera-01:
+  camera-02:
+  camera-03:
+  camera-04:
