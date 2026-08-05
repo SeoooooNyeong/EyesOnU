@@ -39,6 +39,7 @@
         <result property="cameraCode" column="camera_code"/>
         <result property="cameraName" column="camera_name"/>
         <result property="recordingObjectKey" column="recording_object_key"/>
+        <result property="recordingFileSizeBytes" column="recording_file_size_bytes"/>
         <result property="recordingStart" column="recording_start"
                 typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
         <result property="recordingEnd" column="recording_end"
@@ -159,6 +160,7 @@
                c.camera_code,
                c.camera_name,
                r.s3_key AS recording_object_key,
+               r.file_size AS recording_file_size_bytes,
                r.start_time AS recording_start,
                r.end_time AS recording_end,
                aj.prompt_snapshot AS prompt,

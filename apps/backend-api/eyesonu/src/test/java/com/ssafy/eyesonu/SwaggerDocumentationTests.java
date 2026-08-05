@@ -225,6 +225,22 @@ class SwaggerDocumentationTests {
 				.andExpect(jsonPath(
 						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.analysisEnd")
 						.exists())
+				.andExpect(jsonPath(
+						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.recordingDownloadUrl")
+						.exists())
+				.andExpect(jsonPath(
+						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.recordingDownloadUrlExpiresInSeconds")
+						.exists())
+				.andExpect(jsonPath(
+						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.recordingFileSizeBytes")
+						.exists())
+				.andExpect(jsonPath(
+						"$.components.schemas.RecordingAnalysisJobTargetResponse.properties.recordingContentType")
+						.exists())
+				.andExpect(jsonPath(
+						"$.paths['/api/v1/internal/recording-analysis-jobs/{jobId}/target'].get"
+								+ ".responses['503']")
+						.exists())
 				.andExpect(jsonPath("$.components.schemas.RecordingAnalysisFailureRequest")
 						.exists())
 				.andExpect(jsonPath("$.components.schemas.RecordingAnalysisJobClaimResponse")

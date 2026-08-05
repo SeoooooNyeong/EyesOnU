@@ -105,6 +105,7 @@
 | `POST` | `/admin/cases/{caseId}/recording-analysis-jobs/{jobId}/cancel` | 작업 취소 | `caseId`, `jobId` | `200`, `404`, `409` |
 | `POST` | `/admin/cases/{caseId}/recording-analysis-jobs/{jobId}/retry` | 실패 작업 재시도 | `caseId`, `jobId` | `202`, `404`, `409` |
 | `GET` | `/admin/recording-analysis-jobs?caseIds=...` | 여러 사건 작업 일괄 조회 | 사건 ID 1~100개 | `200`, `400` |
+| `GET` | `/internal/recording-analysis-jobs/{jobId}/target` | AI Worker 분석 대상 및 원본 다운로드 정보 조회 | `X-Worker-Key`, `jobId` | `200`, `400`, `401`, `404`, `409`, `422`, `503` |
 
 ---
 
@@ -1594,6 +1595,51 @@ Jetson은 후보 탐지를 수행하고 해당 카메라를 관리하는 미디�
 - 녹화 분석 작업은 `searchStart`, `searchEnd`가 모두 존재하고 `searchStart < searchEnd`인 탐색 조건만 허용한다.
 - 선택한 녹화본은 반개구간 기준으로 `recording.startTime < searchEnd && recording.endTime > searchStart`를 만족해야 하며, 위반하면 `422 BUSINESS_RULE_VIOLATION`이다.
 - Worker Target 응답은 기존 `searchStart`, `searchEnd`와 함께 `recordingStart`, `recordingEnd`, `analysisStart`, `analysisEnd`를 제공한다. 실제 분석 구간은 `max(searchStart, recordingStart)`부터 `min(searchEnd, recordingEnd)`까지다.
+
+### 9.1 AI Worker 분석 대상 조회
+
+Worker는 작업을 선점한 뒤 다음 API로 최신 분석 대상과 원본 녹화 다운로드 정보를 조회한다.
+
+```http
+GET /api/v1/internal/recording-analysis-jobs/{jobId}/target
+X-Worker-Key: <worker-key>
+```
+
+```json
+{
+  "timestamp": "2026-08-03T00:31:02Z",
+  "data": {
+    "jobId": 42,
+    "caseId": 7,
+    "recordingId": 15,
+    "cameraId": 3,
+    "cameraCode": "CAM-003",
+    "cameraName": "Front",
+    "recordingObjectKey": "recordings/CAM-003/2026/08/03/video.mp4",
+    "recordingDownloadUrl": "https://storage.example.com/eyesonu-media/recordings/CAM-003/2026/08/03/video.mp4?...",
+    "recordingDownloadUrlExpiresInSeconds": 900,
+    "recordingFileSizeBytes": 20971520,
+    "recordingContentType": "video/mp4",
+    "recordingStart": "2026-08-02T23:45:00Z",
+    "recordingEnd": "2026-08-03T00:20:00Z",
+    "prompt": "a man wearing a black short sleeve top and black pants",
+    "exclusionPrompt": null,
+    "searchStart": "2026-08-03T00:00:00Z",
+    "searchEnd": "2026-08-03T00:30:00Z",
+    "analysisStart": "2026-08-03T00:00:00Z",
+    "analysisEnd": "2026-08-03T00:20:00Z",
+    "searchArea": "front gate",
+    "attempt": 1
+  }
+}
+```
+
+- `recordingObjectKey`는 기존 Worker와의 호환 및 작업 추적을 위해 유지한다. Worker는 MinIO 자격증명 없이 `recordingDownloadUrl`로 원본을 GET한다.
+- `recordingDownloadUrlExpiresInSeconds`는 URL의 남은 유효 시간을 초 단위로 나타내며 기본값은 900초(15분)다. `recordingFileSizeBytes`는 녹화 등록 시 저장한 실제 크기이고 `recordingContentType`은 `video/mp4`다.
+- Worker 대상 녹화본은 운영상 최대 약 20MB이므로 `/target` 응답 직후 원본 전체를 로컬 임시 파일로 내려받은 다음 분석한다. 분석 내내 원격 URL을 스트리밍하지 않는다.
+- URL 만료 또는 다운로드 재시도 시 실행 중인 작업을 소유한 Worker가 `/target`을 다시 호출해 새 URL을 발급받는다.
+- Storage GET 요청에는 `X-Worker-Key`를 전달하지 않는다. 서버와 Worker는 query string을 포함한 전체 presigned URL을 로그에 남기지 않는다.
+- 작업·상태·Worker 소유권·유효 분석 구간을 검증한 뒤 URL을 발급하며 서명 실패는 `503 STORAGE_UNAVAILABLE`이다.
 
 ---
 

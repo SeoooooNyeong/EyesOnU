@@ -1,9 +1,12 @@
 package com.ssafy.eyesonu.recording.service;
 
+import com.ssafy.eyesonu.common.config.properties.MinioProperties;
 import com.ssafy.eyesonu.common.exception.ApiException;
 import com.ssafy.eyesonu.recording.domain.AnalysisJob;
 import com.ssafy.eyesonu.recording.dto.device.RecordingAnalysisJobTargetResponse;
 import com.ssafy.eyesonu.recording.mapper.AnalysisJobMapper;
+import com.ssafy.eyesonu.storage.StorageObjectUnavailableException;
+import com.ssafy.eyesonu.storage.StorageObjectUrlSigner;
 import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -11,14 +14,22 @@ import org.springframework.stereotype.Service;
 @Service
 public class RecordingAnalysisJobTargetService {
 
+    private static final String RECORDING_CONTENT_TYPE = "video/mp4";
+
     private final AnalysisJobMapper analysisJobMapper;
     private final RecordingAnalysisTimeRangeCalculator timeRangeCalculator;
+    private final StorageObjectUrlSigner urlSigner;
+    private final MinioProperties minioProperties;
 
     public RecordingAnalysisJobTargetService(
             AnalysisJobMapper analysisJobMapper,
-            RecordingAnalysisTimeRangeCalculator timeRangeCalculator) {
+            RecordingAnalysisTimeRangeCalculator timeRangeCalculator,
+            StorageObjectUrlSigner urlSigner,
+            MinioProperties minioProperties) {
         this.analysisJobMapper = analysisJobMapper;
         this.timeRangeCalculator = timeRangeCalculator;
+        this.urlSigner = urlSigner;
+        this.minioProperties = minioProperties;
     }
 
     public RecordingAnalysisJobTargetResponse find(Long jobId, String workerId) {
@@ -49,7 +60,16 @@ public class RecordingAnalysisJobTargetService {
         var analysisRange = timeRangeCalculator.requireIntersection(
                 snapshot.getSearchStart(), snapshot.getSearchEnd(),
                 snapshot.getRecordingStart(), snapshot.getRecordingEnd());
+        String recordingDownloadUrl;
+        try {
+            recordingDownloadUrl = urlSigner.createGetUrl(snapshot.getRecordingObjectKey());
+        } catch (StorageObjectUnavailableException exception) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "STORAGE_UNAVAILABLE", "Recording download URL could not be created.");
+        }
         return RecordingAnalysisJobTargetResponse.from(
-                snapshot, analysisRange.start(), analysisRange.end());
+                snapshot, recordingDownloadUrl,
+                minioProperties.getPresignedUrlExpiry().toSeconds(), RECORDING_CONTENT_TYPE,
+                analysisRange.start(), analysisRange.end());
     }
 }

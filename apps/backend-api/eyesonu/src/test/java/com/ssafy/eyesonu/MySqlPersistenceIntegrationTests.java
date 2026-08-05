@@ -22,6 +22,7 @@ import com.ssafy.eyesonu.missingcase.mapper.MissingCaseMapper;
 import com.ssafy.eyesonu.missingcase.mapper.AdminCandidateMapper;
 import com.ssafy.eyesonu.missingcase.domain.AdminCandidateRow;
 import com.ssafy.eyesonu.missingcase.domain.CandidateSourceType;
+import com.ssafy.eyesonu.recording.mapper.AnalysisJobMapper;
 import java.util.List;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -65,6 +66,9 @@ class MySqlPersistenceIntegrationTests {
 
 	@Autowired
 	private AdminCandidateMapper adminCandidateMapper;
+
+	@Autowired
+	private AnalysisJobMapper analysisJobMapper;
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
@@ -188,6 +192,8 @@ class MySqlPersistenceIntegrationTests {
 				VALUES (?, ?, ?, 'RECORDING_ANALYSIS', 'RUNNING')
 				""", caseId, conditionId, recordingId);
 		Long jobId = jdbcTemplate.queryForObject("SELECT MAX(id) FROM analysis_jobs", Long.class);
+		var snapshot = analysisJobMapper.findRecordingAnalysisPublishSnapshot(jobId, caseId);
+		assertEquals(100L, snapshot.getRecordingFileSizeBytes());
 
 		insertCandidate(caseId, cameraId, null, null, "REALTIME",
 				"track-1", "2026-08-03 09:00:00");

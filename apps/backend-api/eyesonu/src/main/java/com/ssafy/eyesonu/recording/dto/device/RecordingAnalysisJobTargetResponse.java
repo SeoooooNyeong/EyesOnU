@@ -11,6 +11,10 @@ public record RecordingAnalysisJobTargetResponse(
         String cameraCode,
         String cameraName,
         String recordingObjectKey,
+        String recordingDownloadUrl,
+        long recordingDownloadUrlExpiresInSeconds,
+        long recordingFileSizeBytes,
+        String recordingContentType,
         Instant recordingStart,
         Instant recordingEnd,
         String prompt,
@@ -24,11 +28,16 @@ public record RecordingAnalysisJobTargetResponse(
 
     public static RecordingAnalysisJobTargetResponse from(
             RecordingAnalysisPublishSnapshot snapshot,
+            String recordingDownloadUrl,
+            long recordingDownloadUrlExpiresInSeconds,
+            String recordingContentType,
             Instant analysisStart,
             Instant analysisEnd) {
         return new RecordingAnalysisJobTargetResponse(
                 snapshot.getJobId(), snapshot.getCaseId(), snapshot.getRecordingId(), snapshot.getCameraId(),
                 snapshot.getCameraCode(), snapshot.getCameraName(), snapshot.getRecordingObjectKey(),
+                recordingDownloadUrl, recordingDownloadUrlExpiresInSeconds,
+                snapshot.getRecordingFileSizeBytes(), recordingContentType,
                 snapshot.getRecordingStart(), snapshot.getRecordingEnd(),
                 snapshot.getPrompt(), snapshot.getExclusionPrompt(), snapshot.getSearchStart(),
                 snapshot.getSearchEnd(), analysisStart, analysisEnd,
