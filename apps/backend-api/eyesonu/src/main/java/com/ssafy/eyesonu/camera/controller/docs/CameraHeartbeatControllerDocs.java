@@ -18,7 +18,8 @@ public interface CameraHeartbeatControllerDocs {
 
     @Operation(
             summary = "카메라 Heartbeat 수신",
-            description = "인증된 미디어 서버에 소속된 카메라의 상태와 마지막 Heartbeat 시간을 갱신합니다. "
+            description = "인증된 미디어 서버에 소속된 카메라의 상태와 중앙 서버 수신 시각을 갱신합니다. "
+                    + "occurredAt은 Pi5가 상태를 관측한 시각이며 상태 적용 순서에는 사용하지 않습니다. "
                     + "중앙 서버의 timeout 작업이 OFFLINE 상태를 판정합니다.",
             security = @SecurityRequirement(name = SwaggerConfig.DEVICE_KEY_SCHEME))
     @ApiResponses({
@@ -44,7 +45,7 @@ public interface CameraHeartbeatControllerDocs {
             @Parameter(description = "카메라 코드", required = true) String cameraCode,
             @Parameter(hidden = true) MediaServerPrincipal principal,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "카메라 Heartbeat 상태 및 발생 시각",
+                    description = "카메라 Heartbeat 상태 및 Pi5 관측 시각",
                     required = true,
                     content = @Content(schema = @Schema(implementation = CameraHeartbeatRequest.class)))
             CameraHeartbeatRequest request);

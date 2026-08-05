@@ -1,6 +1,7 @@
 package com.ssafy.eyesonu;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
@@ -101,6 +102,12 @@ class SwaggerDocumentationTests {
 				.andExpect(jsonPath(
 						"$.paths['/api/v1/device/cameras/{cameraCode}/heartbeat'].post.summary")
 						.value("카메라 Heartbeat 수신"))
+				.andExpect(jsonPath(
+						"$.paths['/api/v1/device/cameras/{cameraCode}/heartbeat'].post.description")
+						.value(containsString("중앙 서버 수신 시각")))
+				.andExpect(jsonPath(
+						"$.components.schemas.CameraHeartbeatRequest.properties.occurredAt.description")
+						.value(containsString("Pi5가 카메라 상태를 관측")))
 				.andExpect(jsonPath(
 						"$.paths['/api/v1/device/cameras/{cameraCode}/recording-upload-urls'].post").exists())
 				.andExpect(jsonPath("$.paths['/api/v1/device/search-targets'].get").exists())

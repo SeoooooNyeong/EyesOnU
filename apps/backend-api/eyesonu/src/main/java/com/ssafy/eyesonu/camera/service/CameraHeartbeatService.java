@@ -5,6 +5,7 @@ import com.ssafy.eyesonu.camera.domain.CameraHeartbeatState;
 import com.ssafy.eyesonu.camera.dto.device.CameraHeartbeatRequest;
 import com.ssafy.eyesonu.camera.mapper.CameraMapper;
 import com.ssafy.eyesonu.common.exception.ApiException;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Objects;
@@ -24,9 +25,11 @@ public class CameraHeartbeatService {
     private static final String ERROR = "ERROR";
 
     private final CameraMapper cameraMapper;
+    private final Clock clock;
 
-    public CameraHeartbeatService(CameraMapper cameraMapper) {
+    public CameraHeartbeatService(CameraMapper cameraMapper, Clock clock) {
         this.cameraMapper = cameraMapper;
+        this.clock = clock;
     }
 
     @Transactional
@@ -34,6 +37,7 @@ public class CameraHeartbeatService {
             MediaServerPrincipal principal,
             String cameraCode,
             CameraHeartbeatRequest request) {
+        Instant receivedAt = clock.instant();
         if (principal == null || principal.mediaServerId() == null) {
             throw new ApiException(
                     HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED", "Authentication is required");
@@ -44,7 +48,6 @@ public class CameraHeartbeatService {
 
         String normalizedCameraCode = normalizeCameraCode(cameraCode);
         String normalizedStatus = normalizeStatus(request.status());
-        Instant occurredAt = request.occurredAt().toInstant();
         CameraHeartbeatState current;
         try {
             current = cameraMapper.findHeartbeatStateByCameraCode(normalizedCameraCode)
@@ -59,22 +62,22 @@ public class CameraHeartbeatService {
             }
 
             if (current.lastHeartbeat() != null
-                    && !occurredAt.isAfter(current.lastHeartbeat())) {
+                    && !receivedAt.isAfter(current.lastHeartbeat())) {
                 log.warn(
-                        "Ignored stale camera heartbeat cameraId={} cameraCode={} mediaServerId={} status={} lastHeartbeat={}",
+                        "Ignored older camera heartbeat receipt cameraId={} cameraCode={} mediaServerId={} status={} lastHeartbeat={}",
                         current.id(), current.cameraCode(), current.mediaServerId(),
                         normalizedStatus, current.lastHeartbeat());
                 return;
             }
 
             if (cameraMapper.updateHeartbeat(
-                    current.id(), principal.mediaServerId(), normalizedStatus, occurredAt) != 1) {
+                    current.id(), principal.mediaServerId(), normalizedStatus, receivedAt) != 1) {
                 handleRejectedUpdate(
-                        principal.mediaServerId(), normalizedCameraCode, normalizedStatus, occurredAt);
+                        principal.mediaServerId(), normalizedCameraCode, normalizedStatus, receivedAt);
                 return;
             }
 
-            logStateChange(current, normalizedStatus, occurredAt, request.detail());
+            logStateChange(current, normalizedStatus, receivedAt, request.detail());
         } catch (DataAccessException exception) {
             log.error(
                     "Camera heartbeat database processing failed cameraCode={} mediaServerId={}",
@@ -108,7 +111,7 @@ public class CameraHeartbeatService {
             Long mediaServerId,
             String cameraCode,
             String status,
-            Instant occurredAt) {
+            Instant receivedAt) {
         CameraHeartbeatState latest = cameraMapper.findHeartbeatStateByCameraCode(cameraCode)
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "Camera was not found"));
@@ -120,16 +123,16 @@ public class CameraHeartbeatService {
                     "Camera does not belong to the authenticated media server");
         }
 
-        if (latest.lastHeartbeat() != null && !occurredAt.isAfter(latest.lastHeartbeat())) {
+        if (latest.lastHeartbeat() != null && !receivedAt.isAfter(latest.lastHeartbeat())) {
             log.warn(
-                    "Ignored stale camera heartbeat after optimistic update cameraId={} cameraCode={} mediaServerId={} status={} lastHeartbeat={}",
+                    "Ignored older camera heartbeat receipt after optimistic update cameraId={} cameraCode={} mediaServerId={} status={} lastHeartbeat={}",
                     latest.id(), latest.cameraCode(), latest.mediaServerId(), status, latest.lastHeartbeat());
             return;
         }
 
         log.error(
                 "Camera heartbeat database update failed cameraId={} cameraCode={} mediaServerId={} status={} lastHeartbeat={}",
-                latest.id(), latest.cameraCode(), latest.mediaServerId(), status, occurredAt);
+                latest.id(), latest.cameraCode(), latest.mediaServerId(), status, receivedAt);
         throw operationFailed();
     }
 

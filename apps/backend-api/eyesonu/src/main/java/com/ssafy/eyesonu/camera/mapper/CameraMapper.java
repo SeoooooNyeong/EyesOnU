@@ -54,7 +54,7 @@ public interface CameraMapper {
             @Param("cameraId") Long cameraId,
             @Param("mediaServerId") Long mediaServerId,
             @Param("status") String status,
-            @Param("lastHeartbeat") Instant lastHeartbeat);
+            @Param("receivedAt") Instant receivedAt);
 
     int markOffline(@Param("threshold") Instant threshold);
 
