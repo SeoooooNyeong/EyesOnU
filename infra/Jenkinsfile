@@ -6,6 +6,14 @@ pipeline {
         disableConcurrentBuilds()
     }
 
+    parameters {
+        booleanParam(
+            name: 'FORCE_DEPLOY',
+            defaultValue: false,
+            description: '수동 실행 시 변경 감지와 관계없이 전체 서비스를 빌드하고 배포합니다.'
+        )
+    }
+
     environment {
         DEPLOY_COMPOSE = 'infra/compose.deploy.yml'
         DEPLOY_ENV_FILE = '/run/secrets/eyesonu-deploy.env'
@@ -26,12 +34,107 @@ pipeline {
             }
         }
 
+        stage('Detect relevant changes') {
+            steps {
+                script {
+                    def mergeRequest = env.gitlabMergeRequestIid?.trim() ?: env.CHANGE_ID?.trim()
+                    def targetBranch = mergeRequest
+                        ? (env.gitlabTargetBranch?.trim() ?: env.CHANGE_TARGET?.trim())
+                        : ''
+                    def changedFiles = []
+                    def comparison = ''
+
+                    if (targetBranch) {
+                        def targetRef = "refs/remotes/origin/${targetBranch}"
+                        def targetFetchSucceeded = sh(
+                            script: "git fetch --no-tags origin '+refs/heads/${targetBranch}:${targetRef}' >/dev/null 2>&1",
+                            returnStatus: true
+                        ) == 0
+                        def targetRefExists = targetFetchSucceeded || sh(
+                            script: "git rev-parse --verify '${targetRef}^{commit}' >/dev/null 2>&1",
+                            returnStatus: true
+                        ) == 0
+
+                        if (targetRefExists) {
+                            changedFiles = sh(
+                                script: "git diff --name-only '${targetRef}...HEAD'",
+                                returnStdout: true
+                            ).trim().readLines()
+                            comparison = "${targetRef}...HEAD"
+                        }
+                    }
+
+                    if (!comparison) {
+                        def previousSuccessfulCommit = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT?.trim()
+                        def previousSuccessfulCommitExists = previousSuccessfulCommit && sh(
+                            script: "git rev-parse --verify '${previousSuccessfulCommit}^{commit}' >/dev/null 2>&1",
+                            returnStatus: true
+                        ) == 0
+
+                        if (previousSuccessfulCommitExists) {
+                            changedFiles = sh(
+                                script: "git diff --name-only '${previousSuccessfulCommit}..HEAD'",
+                                returnStdout: true
+                            ).trim().readLines()
+                            comparison = "${previousSuccessfulCommit}..HEAD"
+                        }
+                    }
+
+                    if (!comparison) {
+                        // Without a successful baseline, do not risk omitting an unshipped service.
+                        changedFiles = []
+                        comparison = 'no successful baseline (force all services)'
+                    }
+
+                    changedFiles = changedFiles.unique()
+                    def forceAllServices = comparison == 'no successful baseline (force all services)'
+                    def backendChange = forceAllServices || changedFiles.any { path -> path.startsWith('apps/backend-api/eyesonu/') }
+                    def adminChange = forceAllServices || changedFiles.any { path -> path.startsWith('apps/frontend/admin-dashboard/') }
+                    def reporterChange = forceAllServices || changedFiles.any { path -> path.startsWith('apps/frontend/reporter-webapp/') }
+                    def infraChange = forceAllServices || changedFiles.any { path -> path.startsWith('infra/') }
+
+                    if (params.FORCE_DEPLOY) {
+                        backendChange = true
+                        adminChange = true
+                        reporterChange = true
+                        infraChange = true
+                    }
+
+                    def relevantChange = backendChange || adminChange || reporterChange || infraChange
+                    def deployServices = []
+
+                    if (backendChange || infraChange) {
+                        deployServices << 'backend'
+                    }
+                    if (adminChange || infraChange) {
+                        deployServices << 'admin'
+                    }
+                    if (reporterChange || infraChange) {
+                        deployServices << 'reporter'
+                    }
+
+                    env.RELEVANT_CHANGE = relevantChange ? 'true' : 'false'
+                    env.BACKEND_CHANGE = backendChange ? 'true' : 'false'
+                    env.ADMIN_CHANGE = adminChange ? 'true' : 'false'
+                    env.REPORTER_CHANGE = reporterChange ? 'true' : 'false'
+                    env.INFRA_CHANGE = infraChange ? 'true' : 'false'
+                    env.DEPLOY_SERVICES = deployServices.join(' ')
+                    env.CHANGE_COMPARISON = comparison
+                    echo "Changed files: ${changedFiles.join(', ')}"
+                    echo "Change comparison: ${env.CHANGE_COMPARISON}"
+                    echo "Force deploy: ${params.FORCE_DEPLOY}"
+                    echo "Relevant CI/CD change: ${env.RELEVANT_CHANGE}"
+                    echo "Services to deploy: ${env.DEPLOY_SERVICES ?: 'none'}"
+                }
+            }
+        }
+
         stage('Resolve branch') {
             steps {
                 script {
-                    def rawBranch = env.gitlabTargetBranch ?: env.BRANCH_NAME ?: env.GIT_BRANCH ?: ''
+                    def rawBranch = env.gitlabTargetBranch ?: env.CHANGE_TARGET ?: env.BRANCH_NAME ?: env.GIT_BRANCH ?: ''
                     def targetBranch = rawBranch.tokenize('/').last()
-                    def mergeRequest = env.gitlabMergeRequestIid?.trim()
+                    def mergeRequest = env.gitlabMergeRequestIid?.trim() ?: env.CHANGE_ID?.trim()
 
                     env.TARGET_BRANCH = targetBranch
                     env.DEPLOY_PROFILE = targetBranch in ['dev', 'master'] ? targetBranch : ''
@@ -43,6 +146,12 @@ pipeline {
         }
 
         stage('Backend build and test') {
+            when {
+                anyOf {
+                    expression { env.BACKEND_CHANGE == 'true' }
+                    expression { env.INFRA_CHANGE == 'true' }
+                }
+            }
             steps {
                 dir('apps/backend-api/eyesonu') {
                     sh './mvnw -B clean verify'
@@ -51,8 +160,17 @@ pipeline {
         }
 
         stage('Frontend build validation') {
+            when {
+                expression { env.RELEVANT_CHANGE == 'true' }
+            }
             parallel {
                 stage('Admin frontend') {
+                    when {
+                        anyOf {
+                            expression { env.ADMIN_CHANGE == 'true' }
+                            expression { env.INFRA_CHANGE == 'true' }
+                        }
+                    }
                     steps {
                         dir('apps/frontend/admin-dashboard') {
                             sh '''
@@ -64,6 +182,12 @@ pipeline {
                     }
                 }
                 stage('Reporter frontend') {
+                    when {
+                        anyOf {
+                            expression { env.REPORTER_CHANGE == 'true' }
+                            expression { env.INFRA_CHANGE == 'true' }
+                        }
+                    }
                     steps {
                         dir('apps/frontend/reporter-webapp') {
                             sh '''
@@ -79,7 +203,10 @@ pipeline {
 
         stage('Deploy to EC2 Docker Engine') {
             when {
-                expression { env.CAN_DEPLOY == 'true' }
+                allOf {
+                    expression { env.CAN_DEPLOY == 'true' }
+                    expression { env.RELEVANT_CHANGE == 'true' }
+                }
             }
             steps {
                 sshagent(credentials: ['eyesonu-ec2-deploy-key']) {
@@ -99,6 +226,7 @@ pipeline {
                            git -C '$DEPLOY_HOST_ROOT' rev-parse --short HEAD 2>/dev/null || echo unknown; \
                            DEPLOY_ROOT='$DEPLOY_HOST_ROOT' \
                            DEPLOY_ENV_FILE='$DEPLOY_HOST_ENV_FILE' \
+                           DEPLOY_SERVICES='$DEPLOY_SERVICES' \
                            bash '$DEPLOY_HOST_ROOT/infra/scripts/deploy-on-host.sh' '$DEPLOY_PROFILE'"
                     '''
                 }

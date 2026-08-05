@@ -5,6 +5,10 @@ stages:
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - apps/**/*
+        - infra/**/*
+        - .gitlab-ci.yml
     - when: never
 
 default:
