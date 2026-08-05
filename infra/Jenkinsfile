@@ -6,6 +6,14 @@ pipeline {
         disableConcurrentBuilds()
     }
 
+    parameters {
+        booleanParam(
+            name: 'FORCE_DEPLOY',
+            defaultValue: false,
+            description: '수동 실행 시 변경 감지와 관계없이 전체 서비스를 빌드하고 배포합니다.'
+        )
+    }
+
     environment {
         DEPLOY_COMPOSE = 'infra/compose.deploy.yml'
         DEPLOY_ENV_FILE = '/run/secrets/eyesonu-deploy.env'
@@ -29,23 +37,70 @@ pipeline {
         stage('Detect relevant changes') {
             steps {
                 script {
+                    def mergeRequest = env.gitlabMergeRequestIid?.trim() ?: env.CHANGE_ID?.trim()
+                    def targetBranch = mergeRequest
+                        ? (env.gitlabTargetBranch?.trim() ?: env.CHANGE_TARGET?.trim())
+                        : ''
                     def changedFiles = []
-                    currentBuild.changeSets.each { changeSet ->
-                        changeSet.items.each { change ->
-                            change.affectedFiles.each { file -> changedFiles << file.path }
+                    def comparison = ''
+
+                    if (targetBranch) {
+                        def targetRef = "refs/remotes/origin/${targetBranch}"
+                        def targetFetchSucceeded = sh(
+                            script: "git fetch --no-tags origin '+refs/heads/${targetBranch}:${targetRef}' >/dev/null 2>&1",
+                            returnStatus: true
+                        ) == 0
+                        def targetRefExists = targetFetchSucceeded || sh(
+                            script: "git rev-parse --verify '${targetRef}^{commit}' >/dev/null 2>&1",
+                            returnStatus: true
+                        ) == 0
+
+                        if (targetRefExists) {
+                            changedFiles = sh(
+                                script: "git diff --name-only '${targetRef}...HEAD'",
+                                returnStdout: true
+                            ).trim().readLines()
+                            comparison = "${targetRef}...HEAD"
                         }
                     }
-                    if (changedFiles.isEmpty()) {
+
+                    if (!comparison) {
+                        def previousCommit = env.GIT_PREVIOUS_COMMIT?.trim()
+                        def previousCommitExists = previousCommit && sh(
+                            script: "git rev-parse --verify '${previousCommit}^{commit}' >/dev/null 2>&1",
+                            returnStatus: true
+                        ) == 0
+
+                        if (previousCommitExists) {
+                            changedFiles = sh(
+                                script: "git diff --name-only '${previousCommit}..HEAD'",
+                                returnStdout: true
+                            ).trim().readLines()
+                            comparison = "${previousCommit}..HEAD"
+                        }
+                    }
+
+                    if (!comparison) {
                         changedFiles = sh(
                             script: "git diff --name-only HEAD^ HEAD 2>/dev/null || git show --pretty='' --name-only HEAD",
                             returnStdout: true
                         ).trim().readLines()
+                        comparison = 'HEAD^..HEAD (fallback)'
                     }
+
                     changedFiles = changedFiles.unique()
                     def backendChange = changedFiles.any { path -> path.startsWith('apps/backend-api/eyesonu/') }
                     def adminChange = changedFiles.any { path -> path.startsWith('apps/frontend/admin-dashboard/') }
                     def reporterChange = changedFiles.any { path -> path.startsWith('apps/frontend/reporter-webapp/') }
                     def infraChange = changedFiles.any { path -> path.startsWith('infra/') }
+
+                    if (params.FORCE_DEPLOY) {
+                        backendChange = true
+                        adminChange = true
+                        reporterChange = true
+                        infraChange = true
+                    }
+
                     def relevantChange = backendChange || adminChange || reporterChange || infraChange
                     def deployServices = []
 
@@ -65,7 +120,10 @@ pipeline {
                     env.REPORTER_CHANGE = reporterChange ? 'true' : 'false'
                     env.INFRA_CHANGE = infraChange ? 'true' : 'false'
                     env.DEPLOY_SERVICES = deployServices.join(' ')
+                    env.CHANGE_COMPARISON = comparison
                     echo "Changed files: ${changedFiles.join(', ')}"
+                    echo "Change comparison: ${env.CHANGE_COMPARISON}"
+                    echo "Force deploy: ${params.FORCE_DEPLOY}"
                     echo "Relevant CI/CD change: ${env.RELEVANT_CHANGE}"
                     echo "Services to deploy: ${env.DEPLOY_SERVICES ?: 'none'}"
                 }
@@ -75,9 +133,9 @@ pipeline {
         stage('Resolve branch') {
             steps {
                 script {
-                    def rawBranch = env.gitlabTargetBranch ?: env.BRANCH_NAME ?: env.GIT_BRANCH ?: ''
+                    def rawBranch = env.gitlabTargetBranch ?: env.CHANGE_TARGET ?: env.BRANCH_NAME ?: env.GIT_BRANCH ?: ''
                     def targetBranch = rawBranch.tokenize('/').last()
-                    def mergeRequest = env.gitlabMergeRequestIid?.trim()
+                    def mergeRequest = env.gitlabMergeRequestIid?.trim() ?: env.CHANGE_ID?.trim()
 
                     env.TARGET_BRANCH = targetBranch
                     env.DEPLOY_PROFILE = targetBranch in ['dev', 'master'] ? targetBranch : ''
