@@ -78,6 +78,19 @@ request_presigned_upload() {
   }
 
   if [[ ! "${http_status}" =~ ^20[01]$ ]]; then
+    # This validation failure is permanent for the generated segment metadata.
+    # Signal the caller to discard the exact local segment instead of retrying
+    # the same request forever.
+    if [[ "${http_status}" == "400" ]] &&
+       jq -e '
+         .code == "VALIDATION_ERROR" and
+         .message == "endTime must be after startTime"
+       ' "${response_file}" >/dev/null 2>&1; then
+      echo "WARN: backend rejected non-retryable recording time: camera=${camera_code}" >&2
+      rm -f -- "${response_file}"
+      return 2
+    fi
+
     echo "ERROR: recording upload URL request rejected: camera=${camera_code} HTTP=${http_status}" >&2
     sed -n '1,20p' "${response_file}" >&2
     rm -f -- "${response_file}"
@@ -109,8 +122,8 @@ request_presigned_upload() {
 
 build_recording_times() {
   local segment_path="$1"
-  local duration_seconds start_epoch end_epoch
-  local year month day hour minute second
+  local duration_seconds start_epoch end_epoch base_epoch
+  local year month day hour minute second fraction end_timestamp
 
   if ! duration_seconds="$(
     ffprobe \
@@ -124,27 +137,44 @@ build_recording_times() {
     return 1
   fi
 
-  if [[ "${segment_path}" =~ /([0-9]{4})/([0-9]{2})/([0-9]{2})/([0-9]{2})-([0-9]{2})-([0-9]{2})-[0-9]+[.]mp4$ ]]; then
+  if ! awk -v duration="${duration_seconds}" \
+    'BEGIN { exit !(duration > 0) }'; then
+    echo "ERROR: recording duration must be greater than zero: ${segment_path}" >&2
+    return 1
+  fi
+
+  if [[ "${segment_path}" =~ /([0-9]{4})/([0-9]{2})/([0-9]{2})/([0-9]{2})-([0-9]{2})-([0-9]{2})-([0-9]+)[.]mp4$ ]]; then
     year="${BASH_REMATCH[1]}"
     month="${BASH_REMATCH[2]}"
     day="${BASH_REMATCH[3]}"
     hour="${BASH_REMATCH[4]}"
     minute="${BASH_REMATCH[5]}"
     second="${BASH_REMATCH[6]}"
+    fraction="${BASH_REMATCH[7]}"
 
-    if ! start_epoch="$(
+    # MediaMTX's %f component contains sub-second precision. Normalize it to
+    # six digits so short, valid segments never collapse to startTime=endTime.
+    fraction="${fraction}000000"
+    fraction="${fraction:0:6}"
+
+    if ! base_epoch="$(
       date -d "${year}-${month}-${day} ${hour}:${minute}:${second}" +'%s'
     )"; then
       echo "ERROR: failed to parse recording start time: ${segment_path}" >&2
       return 1
     fi
+    start_epoch="${base_epoch}.${fraction}"
   else
-    end_epoch="$(stat -c '%Y' "${segment_path}")"
+    end_timestamp="$(stat -c '%y' "${segment_path}")"
+    if ! end_epoch="$(date -d "${end_timestamp}" +'%s.%6N')"; then
+      echo "ERROR: failed to read recording modification time: ${segment_path}" >&2
+      return 1
+    fi
     start_epoch="$(
       awk \
         -v end="${end_epoch}" \
         -v duration="${duration_seconds}" \
-        'BEGIN { printf "%.0f", end - duration }'
+        'BEGIN { printf "%.6f", end - duration }'
     )"
   fi
 
@@ -152,12 +182,42 @@ build_recording_times() {
     awk \
       -v start="${start_epoch}" \
       -v duration="${duration_seconds}" \
-      'BEGIN { printf "%.0f", start + duration }'
+      'BEGIN { printf "%.6f", start + duration }'
   )"
 
   printf '%s\t%s\n' \
-    "$(date -u -d "@${start_epoch}" +'%Y-%m-%dT%H:%M:%SZ')" \
-    "$(date -u -d "@${end_epoch}" +'%Y-%m-%dT%H:%M:%SZ')"
+    "$(date -u -d "@${start_epoch}" +'%Y-%m-%dT%H:%M:%S.%6NZ')" \
+    "$(date -u -d "@${end_epoch}" +'%Y-%m-%dT%H:%M:%S.%6NZ')"
+}
+
+discard_invalid_job() {
+  local job_path="$1"
+  local segment_path="$2"
+  local reason="$3"
+  local recording_root_real segment_real
+
+  recording_root_real="$(realpath -m -- "${RECORDING_ROOT}")"
+  segment_real="$(realpath -m -- "${segment_path}")"
+
+  case "${segment_real}" in
+    "${recording_root_real}"/*) ;;
+    *)
+      echo "ERROR: refusing to delete recording outside RECORDING_ROOT: ${segment_path}" >&2
+      return 1
+      ;;
+  esac
+
+  if ! rm -f -- "${segment_real}"; then
+    echo "ERROR: failed to delete invalid recording: ${segment_real}" >&2
+    return 1
+  fi
+
+  if ! rm -f -- "${job_path}"; then
+    echo "ERROR: failed to delete invalid upload job: ${job_path}" >&2
+    return 1
+  fi
+
+  echo "WARN: discarded non-retryable recording: reason=${reason} file=${segment_real}" >&2
 }
 
 save_recording_id() {
@@ -342,8 +402,8 @@ process_job() {
   local job_path="$1"
   local job_id camera_path segment_path object_key upload_url content_type
   local recording_id saved_object_key upload_completed max_file_size_bytes
-  local start_time end_time
-  local local_size
+  local start_time end_time recording_times
+  local local_size presigned_result request_status
 
   if ! job_id="$(jq -er '.jobId' "${job_path}")" ||
      ! camera_path="$(jq -er '.cameraPath' "${job_path}")" ||
@@ -370,11 +430,14 @@ process_job() {
 
   local_size="$(stat -c '%s' "${segment_path}")"
 
-  if ! IFS=$'\t' read -r start_time end_time < <(
-    build_recording_times "${segment_path}"
-  ); then
-    return 1
+  if ! recording_times="$(build_recording_times "${segment_path}")"; then
+    discard_invalid_job \
+      "${job_path}" \
+      "${segment_path}" \
+      "INVALID_RECORDING_FILE" || return 1
+    return 0
   fi
+  IFS=$'\t' read -r start_time end_time <<< "${recording_times}"
 
   recording_id="$(jq -r '.recordingId // empty' "${job_path}")"
   saved_object_key="$(jq -r '.objectKey // empty' "${job_path}")"
@@ -411,16 +474,29 @@ process_job() {
     return 0
   fi
 
-  if ! IFS=$'\t' read -r \
-    object_key upload_url content_type max_file_size_bytes < <(
-      request_presigned_upload \
-        "${job_id}" \
-        "${camera_path}" \
-        "${start_time}" \
-        "${end_time}"
-    ); then
+  presigned_result="$(
+    request_presigned_upload \
+      "${job_id}" \
+      "${camera_path}" \
+      "${start_time}" \
+      "${end_time}"
+  )"
+  request_status=$?
+
+  if (( request_status == 2 )); then
+    discard_invalid_job \
+      "${job_path}" \
+      "${segment_path}" \
+      "INVALID_RECORDING_TIME" || return 1
+    return 0
+  fi
+
+  if (( request_status != 0 )); then
     return 1
   fi
+
+  IFS=$'\t' read -r \
+    object_key upload_url content_type max_file_size_bytes <<< "${presigned_result}"
 
   if [[ ! "${max_file_size_bytes}" =~ ^[0-9]+$ ]]; then
     echo "ERROR: invalid maxFileSizeBytes in upload URL response" >&2

@@ -76,14 +76,27 @@
         WHERE camera_code = #{cameraCode}
     </select>
 
+    <select id="findHeartbeatStateByCameraCodeForUpdate" resultMap="cameraHeartbeatStateResultMap">
+        SELECT id, media_server_id, camera_code, status, last_heartbeat
+        FROM cameras
+        WHERE camera_code = #{cameraCode}
+        FOR UPDATE
+    </select>
+
     <update id="updateHeartbeat">
         UPDATE cameras
         SET status = #{status},
-            last_heartbeat = #{lastHeartbeat,typeHandler=com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler},
+            last_heartbeat = #{receivedAt,typeHandler=com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler},
             updated_at = UTC_TIMESTAMP(6)
         WHERE id = #{cameraId}
           AND media_server_id = #{mediaServerId}
-          AND (last_heartbeat IS NULL OR last_heartbeat &lt; #{lastHeartbeat,typeHandler=com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler})
+          AND status = #{expectedStatus}
+          AND (
+              (#{expectedLastHeartbeat,jdbcType=TIMESTAMP,typeHandler=com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler} IS NULL
+                  AND last_heartbeat IS NULL)
+              OR last_heartbeat = #{expectedLastHeartbeat,jdbcType=TIMESTAMP,typeHandler=com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler}
+          )
+          AND (last_heartbeat IS NULL OR last_heartbeat &lt; #{receivedAt,typeHandler=com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler})
     </update>
 
     <update id="markOffline">
