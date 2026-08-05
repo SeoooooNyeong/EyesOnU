@@ -65,34 +65,33 @@ pipeline {
                     }
 
                     if (!comparison) {
-                        def previousCommit = env.GIT_PREVIOUS_COMMIT?.trim()
-                        def previousCommitExists = previousCommit && sh(
-                            script: "git rev-parse --verify '${previousCommit}^{commit}' >/dev/null 2>&1",
+                        def previousSuccessfulCommit = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT?.trim()
+                        def previousSuccessfulCommitExists = previousSuccessfulCommit && sh(
+                            script: "git rev-parse --verify '${previousSuccessfulCommit}^{commit}' >/dev/null 2>&1",
                             returnStatus: true
                         ) == 0
 
-                        if (previousCommitExists) {
+                        if (previousSuccessfulCommitExists) {
                             changedFiles = sh(
-                                script: "git diff --name-only '${previousCommit}..HEAD'",
+                                script: "git diff --name-only '${previousSuccessfulCommit}..HEAD'",
                                 returnStdout: true
                             ).trim().readLines()
-                            comparison = "${previousCommit}..HEAD"
+                            comparison = "${previousSuccessfulCommit}..HEAD"
                         }
                     }
 
                     if (!comparison) {
-                        changedFiles = sh(
-                            script: "git diff --name-only HEAD^ HEAD 2>/dev/null || git show --pretty='' --name-only HEAD",
-                            returnStdout: true
-                        ).trim().readLines()
-                        comparison = 'HEAD^..HEAD (fallback)'
+                        // Without a successful baseline, do not risk omitting an unshipped service.
+                        changedFiles = []
+                        comparison = 'no successful baseline (force all services)'
                     }
 
                     changedFiles = changedFiles.unique()
-                    def backendChange = changedFiles.any { path -> path.startsWith('apps/backend-api/eyesonu/') }
-                    def adminChange = changedFiles.any { path -> path.startsWith('apps/frontend/admin-dashboard/') }
-                    def reporterChange = changedFiles.any { path -> path.startsWith('apps/frontend/reporter-webapp/') }
-                    def infraChange = changedFiles.any { path -> path.startsWith('infra/') }
+                    def forceAllServices = comparison == 'no successful baseline (force all services)'
+                    def backendChange = forceAllServices || changedFiles.any { path -> path.startsWith('apps/backend-api/eyesonu/') }
+                    def adminChange = forceAllServices || changedFiles.any { path -> path.startsWith('apps/frontend/admin-dashboard/') }
+                    def reporterChange = forceAllServices || changedFiles.any { path -> path.startsWith('apps/frontend/reporter-webapp/') }
+                    def infraChange = forceAllServices || changedFiles.any { path -> path.startsWith('infra/') }
 
                     if (params.FORCE_DEPLOY) {
                         backendChange = true
