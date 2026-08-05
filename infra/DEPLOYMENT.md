@@ -84,6 +84,8 @@ flowchart TB
 4. `infra/nginx/conf.d/default.conf`의 도메인과 인증서 경로를 실제 도메인에 맞춘다.
 5. 인증서와 ACME 디렉터리를 준비한다.
 
+관리자 추정 동선 지도에는 카카오맵 JavaScript 키가 필요하다. `infra/.env.deploy`의 `VITE_KAKAO_MAP_APP_KEY`에 키를 설정하고, 카카오 개발자 콘솔의 JavaScript 키 허용 도메인에 dev와 master 관리자 HTTPS 도메인을 모두 등록한다. 키가 없으면 배포는 계속되지만 지도 대신 동선 목록만 표시된다.
+
 ```bash
 mkdir -p infra/certbot/www infra/certbot/conf
 ```

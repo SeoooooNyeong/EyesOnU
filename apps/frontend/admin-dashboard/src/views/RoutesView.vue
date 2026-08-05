@@ -1,38 +1,206 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import { getCases, getRoutePoints } from "../api/mockApi";
-const cases = ref([]); const points = ref([]); const caseDropdownOpen = ref(false); const selectedCaseNumber = ref(""); const excludedPointTimes = ref([]); const excludeTarget = ref(null); const excludeModalOpen = ref(false);
-const followMode = ref(false); const followIndex = ref(0); let followTimer;
-const selectedCase = computed(() => cases.value.find((item) => item.caseNumber === selectedCaseNumber.value) || cases.value[0]);
-const visiblePoints = computed(() => points.value);
-const followedPoint = computed(() => visiblePoints.value[followIndex.value] || visiblePoints.value[0]);
-onMounted(async () => { cases.value = await getCases(); points.value = await getRoutePoints(); selectedCaseNumber.value = cases.value[0]?.caseNumber || ""; });
-const selectCase = (caseItem) => { selectedCaseNumber.value = caseItem.caseNumber; caseDropdownOpen.value = false; };
-const requestExclude = (point) => { excludeTarget.value = point; excludeModalOpen.value = true; };
-const excludePoint = () => {
-  if (excludeTarget.value) excludedPointTimes.value.push(excludeTarget.value.time);
-  excludeTarget.value = null;
-  excludeModalOpen.value = false;
-};
-const includePoint = (point) => { excludedPointTimes.value = excludedPointTimes.value.filter((time) => time !== point.time); };
-const toggleRouteFollow = () => {
-  followMode.value = !followMode.value;
-  if (!followMode.value) {
-    window.clearInterval(followTimer);
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { listCases } from "../api/caseApi";
+import { getCaseRoute } from "../api/routeApi";
+import RouteMap from "../components/routes/RouteMap.vue";
+import { candidateSourceLabel, formatCandidateDate, similarityPercent } from "../domain/candidateMapper";
+
+const route = useRoute();
+const router = useRouter();
+const cases = ref([]);
+const selectedCaseId = ref("");
+const caseDropdownOpen = ref(false);
+const points = ref([]);
+const loading = ref(true);
+const error = ref("");
+const followMode = ref(false);
+const followIndex = ref(0);
+const selectedPointIndex = ref(-1);
+let followTimer;
+let routeRequestId = 0;
+
+const selectedCase = computed(() => cases.value.find(
+  (item) => String(item.id) === String(selectedCaseId.value)
+));
+const activePointIndex = computed(() => followMode.value ? followIndex.value : selectedPointIndex.value);
+
+function stopFollowing() {
+  followMode.value = false;
+  window.clearInterval(followTimer);
+  followTimer = undefined;
+}
+
+async function loadRoute(caseId) {
+  const requestId = ++routeRequestId;
+  stopFollowing();
+  selectedPointIndex.value = -1;
+  points.value = [];
+  error.value = "";
+  if (!caseId) {
+    loading.value = false;
     return;
   }
+  loading.value = true;
+  try {
+    const result = await getCaseRoute(caseId);
+    if (requestId !== routeRequestId || String(selectedCaseId.value) !== String(caseId)) return;
+    points.value = result?.points || [];
+  } catch (exception) {
+    if (requestId !== routeRequestId || String(selectedCaseId.value) !== String(caseId)) return;
+    error.value = exception.message || "추정 동선을 불러오지 못했습니다.";
+  } finally {
+    if (requestId === routeRequestId && String(selectedCaseId.value) === String(caseId)) {
+      loading.value = false;
+    }
+  }
+}
+
+async function loadCases() {
+  loading.value = true;
+  error.value = "";
+  try {
+    const result = await listCases({ page: 0, size: 100, sort: "reportedAt,desc" });
+    cases.value = result.data || [];
+    const requestedId = String(route.query.caseId || "");
+    const initial = cases.value.find((item) => String(item.id) === requestedId) || cases.value[0];
+    selectedCaseId.value = initial ? String(initial.id) : "";
+    if (!initial) loading.value = false;
+  } catch (exception) {
+    cases.value = [];
+    loading.value = false;
+    error.value = exception.message || "사건 목록을 불러오지 못했습니다.";
+  }
+}
+
+function selectCase(caseItem) {
+  selectedCaseId.value = String(caseItem.id);
+  caseDropdownOpen.value = false;
+}
+
+function toggleRouteFollow() {
+  if (!points.value.length) return;
+  if (followMode.value) {
+    stopFollowing();
+    return;
+  }
+  followMode.value = true;
+  selectedPointIndex.value = -1;
   followIndex.value = 0;
   followTimer = window.setInterval(() => {
-    if (!visiblePoints.value.length) return;
-    followIndex.value = (followIndex.value + 1) % visiblePoints.value.length;
+    followIndex.value = (followIndex.value + 1) % points.value.length;
   }, 2200);
-};
-onUnmounted(() => window.clearInterval(followTimer));
+}
+
+function selectPoint(index) {
+  selectedPointIndex.value = index;
+}
+
+function detectedTime(point) {
+  const first = formatCandidateDate(point.firstDetectedAt);
+  const last = formatCandidateDate(point.lastDetectedAt);
+  return first === last ? first : `${first} ~ ${last}`;
+}
+
+watch(selectedCaseId, (caseId) => {
+  const query = { ...route.query };
+  if (caseId) query.caseId = caseId;
+  else delete query.caseId;
+  router.replace({ query });
+  loadRoute(caseId);
+});
+
+onMounted(loadCases);
+onUnmounted(() => {
+  routeRequestId += 1;
+  stopFollowing();
+});
 </script>
+
 <template>
   <section class="route-layout">
-    <article class="content-panel"><div class="section-heading"><label class="case-select-field route-case-selector"><span class="route-case-label">사건 선택</span><div class="case-picker"><button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCase?.caseNumber || "사건 선택" }}</button><div v-if="caseDropdownOpen" class="case-picker-menu"><button v-for="c in cases" :key="c.id" type="button" class="case-picker-option" @click="selectCase(c)"><span>{{ c.caseNumber }}</span><div class="case-hover-card"><strong>{{ c.name }}</strong><span>{{ c.gender }} · {{ c.age }}세</span><span>{{ c.lastSeenLocation }}</span><span>{{ c.reportedAt }} 접수</span></div></button></div></div></label><div class="route-follow-actions"><button class="route-follow-link" :class="{ active: followMode }" @click="toggleRouteFollow">{{ followMode ? "동선 따라가기 중지" : "동선 따라보기" }}</button><span>실종자 동선을 순서대로 확인합니다.</span></div></div><div class="map-panel route-map" :class="{ following: followMode }"><div class="route-map-copy"><strong>{{ followMode ? `${followedPoint?.camera || "CCTV"} 동선 따라보기` : "CCTV 동선 지도" }}</strong><span>{{ followedPoint?.location || "CCTV 포인트를 순서대로 표시합니다." }}</span></div><svg class="route-map-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="12,68 34,47 58,57 82,27" /></svg><div class="route-map-points"><span v-for="(point, index) in visiblePoints" :key="point.time" :class="['route-map-point', index === followIndex && followMode && 'active']" :style="{ left: `${[12, 34, 58, 82][index] || 82}%`, top: `${[68, 47, 57, 27][index] || 27}%` }">{{ index + 1 }}</span></div></div></article>
-    <aside class="content-panel"><h2>동선 목록</h2><div v-for="(p, index) in visiblePoints" :key="p.time" :class="['timeline-item', excludedPointTimes.includes(p.time) && 'excluded', index === followIndex && followMode && 'following']"><strong>{{ index + 1 }}. {{ p.time }} · <span class="route-camera">{{ p.camera }}</span></strong><p>{{ p.location }} · {{ p.note }}</p><button v-if="!excludedPointTimes.includes(p.time)" class="ghost-button" @click="requestExclude(p)">동선 제외</button><button v-else class="route-include-button" @click="includePoint(p)">동선 추가</button></div><button class="primary-button route-share-button">동선 정보 공유</button></aside>
-    <div v-if="excludeModalOpen" class="modal-backdrop" @click.self="excludeModalOpen = false"><section class="modal"><h3>동선을 제외할까요?</h3><p>{{ excludeTarget?.location }} 동선이 목록에서 제외됩니다.</p><div class="modal-actions"><button class="ghost-button" @click="excludeModalOpen = false">취소</button><button class="primary-button" @click="excludePoint">제외하기</button></div></section></div>
+    <article class="content-panel route-main-panel">
+      <div class="section-heading">
+        <label class="case-select-field route-case-selector">
+          <span class="route-case-label">사건 선택</span>
+          <div class="case-picker">
+            <button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">
+              {{ selectedCase?.caseNumber || "사건 선택" }}
+            </button>
+            <div v-if="caseDropdownOpen" class="case-picker-menu">
+              <button
+                v-for="caseItem in cases"
+                :key="caseItem.id"
+                type="button"
+                class="case-picker-option"
+                @click="selectCase(caseItem)"
+              >
+                <span>{{ caseItem.caseNumber }}</span>
+                <div class="case-hover-card">
+                  <strong>{{ caseItem.missingName || "이름 미등록" }}</strong>
+                  <span>{{ caseItem.gender || "성별 미등록" }}</span>
+                  <span>{{ caseItem.lastSeenAddress || "마지막 목격지 미등록" }}</span>
+                  <span>{{ formatCandidateDate(caseItem.reportedAt) }} 접수</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </label>
+        <div class="route-follow-actions">
+          <button
+            type="button"
+            class="route-follow-link"
+            :class="{ active: followMode }"
+            :disabled="!points.length || loading"
+            @click="toggleRouteFollow"
+          >{{ followMode ? "동선 따라가기 중지" : "동선 따라보기" }}</button>
+          <span>확정된 관측 지점을 시간순으로 확인합니다.</span>
+        </div>
+      </div>
+
+      <div v-if="loading" class="state-view" role="status"><strong>추정 동선을 불러오는 중입니다.</strong></div>
+      <div v-else-if="error" class="state-view error">
+        <strong>{{ error }}</strong>
+        <button type="button" @click="selectedCaseId ? loadRoute(selectedCaseId) : loadCases()">다시 시도</button>
+      </div>
+      <div v-else-if="!selectedCase" class="state-view"><strong>조회할 사건이 없습니다.</strong></div>
+      <div v-else-if="points.length === 0" class="state-view">
+        <strong>확정된 동선이 없습니다.</strong>
+        <p>후보를 확정하면 해당 카메라 위치가 시간순으로 표시됩니다.</p>
+      </div>
+      <RouteMap
+        v-else
+        :points="points"
+        :active-index="activePointIndex"
+        @select="selectPoint"
+      />
+      <p v-if="points.length" class="route-map-caption">
+        선은 확정 후보가 관측된 카메라를 시간순으로 연결한 추정선이며 실제 도로 이동 경로가 아닙니다.
+      </p>
+    </article>
+
+    <aside class="content-panel route-timeline-panel">
+      <h2>동선 목록</h2>
+      <p v-if="!points.length" class="empty-state">표시할 확정 후보가 없습니다.</p>
+      <div
+        v-for="(point, index) in points"
+        :key="point.candidateId"
+        :class="['timeline-item', index === activePointIndex && 'following']"
+      >
+        <div class="timeline-meta">
+          <strong>{{ index + 1 }}</strong>
+          <time>{{ detectedTime(point) }}</time>
+        </div>
+        <h3>{{ point.cameraName || point.cameraCode }}</h3>
+        <p>{{ point.address || "카메라 주소 미등록" }}</p>
+        <p class="route-point-meta">
+          {{ candidateSourceLabel(point.sourceType) }} · 유사도 {{ similarityPercent(point.bestSimilarity) }}%
+          · {{ point.latitude }}, {{ point.longitude }}
+        </p>
+        <button type="button" class="ghost-button" @click="router.push(`/admin/candidates/${point.candidateId}`)">
+          후보 근거 보기
+        </button>
+      </div>
+    </aside>
   </section>
 </template>

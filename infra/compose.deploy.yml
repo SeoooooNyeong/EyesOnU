@@ -94,6 +94,7 @@ services:
       context: ../apps/frontend/admin-dashboard
       args:
         VITE_MEDIA_STREAM_BASE_URL: /media-stream
+        VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:-}
     image: eyesonu/admin-dev:${IMAGE_TAG:-latest}
     restart: unless-stopped
     expose:
@@ -253,6 +254,8 @@ services:
     profiles: ["master"]
     build:
       context: ../apps/frontend/admin-dashboard
+      args:
+        VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:-}
     image: eyesonu/admin-master:${IMAGE_TAG:-latest}
     restart: unless-stopped
     expose:
