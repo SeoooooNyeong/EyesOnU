@@ -70,10 +70,13 @@ public class CameraHeartbeatService {
                 return;
             }
 
-            if (cameraMapper.updateHeartbeat(
-                    current.id(), principal.mediaServerId(), normalizedStatus, receivedAt) != 1) {
+            if (!updateHeartbeat(current, principal.mediaServerId(), normalizedStatus, receivedAt)) {
                 handleRejectedUpdate(
-                        principal.mediaServerId(), normalizedCameraCode, normalizedStatus, receivedAt);
+                        principal.mediaServerId(),
+                        normalizedCameraCode,
+                        normalizedStatus,
+                        receivedAt,
+                        request.detail());
                 return;
             }
 
@@ -111,8 +114,9 @@ public class CameraHeartbeatService {
             Long mediaServerId,
             String cameraCode,
             String status,
-            Instant receivedAt) {
-        CameraHeartbeatState latest = cameraMapper.findHeartbeatStateByCameraCode(cameraCode)
+            Instant receivedAt,
+            String detail) {
+        CameraHeartbeatState latest = cameraMapper.findHeartbeatStateByCameraCodeForUpdate(cameraCode)
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND", "Camera was not found"));
 
@@ -130,10 +134,28 @@ public class CameraHeartbeatService {
             return;
         }
 
-        log.error(
-                "Camera heartbeat database update failed cameraId={} cameraCode={} mediaServerId={} status={} lastHeartbeat={}",
-                latest.id(), latest.cameraCode(), latest.mediaServerId(), status, receivedAt);
-        throw operationFailed();
+        if (!updateHeartbeat(latest, mediaServerId, status, receivedAt)) {
+            log.error(
+                    "Camera heartbeat optimistic retry failed cameraId={} cameraCode={} mediaServerId={} status={} lastHeartbeat={}",
+                    latest.id(), latest.cameraCode(), latest.mediaServerId(), status, receivedAt);
+            throw operationFailed();
+        }
+
+        logStateChange(latest, status, receivedAt, detail);
+    }
+
+    private boolean updateHeartbeat(
+            CameraHeartbeatState expected,
+            Long mediaServerId,
+            String status,
+            Instant receivedAt) {
+        return cameraMapper.updateHeartbeat(
+                expected.id(),
+                mediaServerId,
+                status,
+                receivedAt,
+                expected.status(),
+                expected.lastHeartbeat()) == 1;
     }
 
     private void logStateChange(

@@ -45,12 +45,14 @@ class CameraHeartbeatServiceTests {
         Instant occurredAt = Instant.parse("2026-07-20T02:00:00Z");
         when(cameraMapper.findHeartbeatStateByCameraCode(CAMERA_CODE))
                 .thenReturn(Optional.of(state("OFFLINE", null)));
-        when(cameraMapper.updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT))
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT, "OFFLINE", null))
                 .thenReturn(1);
 
         service.receive(PRINCIPAL, CAMERA_CODE, request(occurredAt, "ONLINE", null));
 
-        verify(cameraMapper).updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT);
+        verify(cameraMapper).updateHeartbeat(
+                CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT, "OFFLINE", null);
     }
 
     @Test
@@ -58,12 +60,24 @@ class CameraHeartbeatServiceTests {
         Instant occurredAt = Instant.parse("2036-07-20T02:00:00Z");
         when(cameraMapper.findHeartbeatStateByCameraCode(CAMERA_CODE))
                 .thenReturn(Optional.of(state("ONLINE", RECEIVED_AT.minusSeconds(10))));
-        when(cameraMapper.updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ERROR", RECEIVED_AT))
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID,
+                MEDIA_SERVER_ID,
+                "ERROR",
+                RECEIVED_AT,
+                "ONLINE",
+                RECEIVED_AT.minusSeconds(10)))
                 .thenReturn(1);
 
         service.receive(PRINCIPAL, CAMERA_CODE, request(occurredAt, "ERROR", "camera check failed"));
 
-        verify(cameraMapper).updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ERROR", RECEIVED_AT);
+        verify(cameraMapper).updateHeartbeat(
+                CAMERA_ID,
+                MEDIA_SERVER_ID,
+                "ERROR",
+                RECEIVED_AT,
+                "ONLINE",
+                RECEIVED_AT.minusSeconds(10));
     }
 
     @Test
@@ -73,7 +87,8 @@ class CameraHeartbeatServiceTests {
         service = new CameraHeartbeatService(cameraMapper, clock);
         when(cameraMapper.findHeartbeatStateByCameraCode(CAMERA_CODE))
                 .thenReturn(Optional.of(state("OFFLINE", null)));
-        when(cameraMapper.updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT))
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT, "OFFLINE", null))
                 .thenReturn(1);
 
         service.receive(
@@ -94,9 +109,21 @@ class CameraHeartbeatServiceTests {
         when(cameraMapper.findHeartbeatStateByCameraCode(CAMERA_CODE))
                 .thenReturn(Optional.of(state("ERROR", RECEIVED_AT.minusSeconds(10))))
                 .thenReturn(Optional.of(state("ERROR", firstReceivedAt)));
-        when(cameraMapper.updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ERROR", firstReceivedAt))
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID,
+                MEDIA_SERVER_ID,
+                "ERROR",
+                firstReceivedAt,
+                "ERROR",
+                RECEIVED_AT.minusSeconds(10)))
                 .thenReturn(1);
-        when(cameraMapper.updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ERROR", secondReceivedAt))
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID,
+                MEDIA_SERVER_ID,
+                "ERROR",
+                secondReceivedAt,
+                "ERROR",
+                firstReceivedAt))
                 .thenReturn(1);
 
         service.receive(
@@ -109,9 +136,19 @@ class CameraHeartbeatServiceTests {
                 request(Instant.parse("2026-07-20T01:00:05Z"), "ERROR", "still unhealthy"));
 
         verify(cameraMapper).updateHeartbeat(
-                CAMERA_ID, MEDIA_SERVER_ID, "ERROR", firstReceivedAt);
+                CAMERA_ID,
+                MEDIA_SERVER_ID,
+                "ERROR",
+                firstReceivedAt,
+                "ERROR",
+                RECEIVED_AT.minusSeconds(10));
         verify(cameraMapper).updateHeartbeat(
-                CAMERA_ID, MEDIA_SERVER_ID, "ERROR", secondReceivedAt);
+                CAMERA_ID,
+                MEDIA_SERVER_ID,
+                "ERROR",
+                secondReceivedAt,
+                "ERROR",
+                firstReceivedAt);
     }
 
     @Test
@@ -141,6 +178,8 @@ class CameraHeartbeatServiceTests {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any());
     }
 
@@ -156,6 +195,8 @@ class CameraHeartbeatServiceTests {
                 request(Instant.parse("2036-07-20T02:00:00Z"), "ERROR", "late processing"));
 
         verify(cameraMapper, never()).updateHeartbeat(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
@@ -191,9 +232,11 @@ class CameraHeartbeatServiceTests {
     void classifiesOptimisticUpdateMissAsOlderServerReceipt() {
         Instant latestHeartbeat = RECEIVED_AT.plusSeconds(10);
         when(cameraMapper.findHeartbeatStateByCameraCode(CAMERA_CODE))
-                .thenReturn(Optional.of(state("OFFLINE", null)))
+                .thenReturn(Optional.of(state("OFFLINE", null)));
+        when(cameraMapper.findHeartbeatStateByCameraCodeForUpdate(CAMERA_CODE))
                 .thenReturn(Optional.of(state("ONLINE", latestHeartbeat)));
-        when(cameraMapper.updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT))
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT, "OFFLINE", null))
                 .thenReturn(0);
 
         service.receive(
@@ -201,16 +244,56 @@ class CameraHeartbeatServiceTests {
                 CAMERA_CODE,
                 request(Instant.parse("2036-07-20T02:00:00Z"), "ONLINE", null));
 
-        verify(cameraMapper, times(2)).findHeartbeatStateByCameraCode(CAMERA_CODE);
+        verify(cameraMapper).findHeartbeatStateByCameraCode(CAMERA_CODE);
+        verify(cameraMapper).findHeartbeatStateByCameraCodeForUpdate(CAMERA_CODE);
+    }
+
+    @Test
+    void retriesNewerReceiptAfterOptimisticConflictUsingLatestLockedState() {
+        Instant conflictedHeartbeat = RECEIVED_AT.minusSeconds(1);
+        CameraHeartbeatState initial = state("OFFLINE", null);
+        CameraHeartbeatState latest = state("ERROR", conflictedHeartbeat);
+        when(cameraMapper.findHeartbeatStateByCameraCode(CAMERA_CODE))
+                .thenReturn(Optional.of(initial));
+        when(cameraMapper.findHeartbeatStateByCameraCodeForUpdate(CAMERA_CODE))
+                .thenReturn(Optional.of(latest));
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT, "OFFLINE", null))
+                .thenReturn(0);
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID,
+                MEDIA_SERVER_ID,
+                "ONLINE",
+                RECEIVED_AT,
+                "ERROR",
+                conflictedHeartbeat))
+                .thenReturn(1);
+
+        service.receive(
+                PRINCIPAL,
+                CAMERA_CODE,
+                request(Instant.parse("2026-07-20T02:00:00Z"), "ONLINE", null));
+
+        verify(cameraMapper).updateHeartbeat(
+                CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT, "OFFLINE", null);
+        verify(cameraMapper).updateHeartbeat(
+                CAMERA_ID,
+                MEDIA_SERVER_ID,
+                "ONLINE",
+                RECEIVED_AT,
+                "ERROR",
+                conflictedHeartbeat);
     }
 
     @Test
     void classifiesOptimisticUpdateMissAsForeignCamera() {
         when(cameraMapper.findHeartbeatStateByCameraCode(CAMERA_CODE))
-                .thenReturn(Optional.of(state("OFFLINE", null)))
+                .thenReturn(Optional.of(state("OFFLINE", null)));
+        when(cameraMapper.findHeartbeatStateByCameraCodeForUpdate(CAMERA_CODE))
                 .thenReturn(Optional.of(new CameraHeartbeatState(
                         CAMERA_ID, 999L, CAMERA_CODE, "ONLINE", RECEIVED_AT)));
-        when(cameraMapper.updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT))
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT, "OFFLINE", null))
                 .thenReturn(0);
 
         assertApiError(
@@ -225,9 +308,11 @@ class CameraHeartbeatServiceTests {
     @Test
     void classifiesOptimisticUpdateMissAsMissingCamera() {
         when(cameraMapper.findHeartbeatStateByCameraCode(CAMERA_CODE))
-                .thenReturn(Optional.of(state("OFFLINE", null)))
+                .thenReturn(Optional.of(state("OFFLINE", null)));
+        when(cameraMapper.findHeartbeatStateByCameraCodeForUpdate(CAMERA_CODE))
                 .thenReturn(Optional.empty());
-        when(cameraMapper.updateHeartbeat(CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT))
+        when(cameraMapper.updateHeartbeat(
+                CAMERA_ID, MEDIA_SERVER_ID, "ONLINE", RECEIVED_AT, "OFFLINE", null))
                 .thenReturn(0);
 
         assertApiError(

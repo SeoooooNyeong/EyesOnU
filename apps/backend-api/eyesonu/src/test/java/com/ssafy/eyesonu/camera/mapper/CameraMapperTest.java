@@ -25,8 +25,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.context.jdbc.SqlConfig;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = "spring.flyway.enabled=true")
 @ActiveProfiles("test")
@@ -43,6 +45,9 @@ class CameraMapperTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Test
     void adminLookupJoinsMediaServerAndKeepsInternalRtspValueAvailableToService() {
@@ -122,11 +127,33 @@ class CameraMapperTest {
 
         assertThat(initial.status()).isEqualTo("OFFLINE");
         assertThat(cameraMapper.updateHeartbeat(
-                initial.id(), initial.mediaServerId(), "ONLINE", onlineReceivedAt)).isEqualTo(1);
+                initial.id(),
+                initial.mediaServerId(),
+                "ONLINE",
+                onlineReceivedAt,
+                "OFFLINE",
+                null)).isEqualTo(1);
         assertThat(cameraMapper.updateHeartbeat(
-                initial.id(), initial.mediaServerId(), "ERROR", onlineReceivedAt.minusSeconds(1))).isZero();
+                initial.id(),
+                initial.mediaServerId(),
+                "ERROR",
+                onlineReceivedAt.minusSeconds(1),
+                "ONLINE",
+                onlineReceivedAt)).isZero();
         assertThat(cameraMapper.updateHeartbeat(
-                initial.id(), 999999L, "ERROR", onlineReceivedAt.plusSeconds(1))).isZero();
+                initial.id(),
+                initial.mediaServerId(),
+                "ERROR",
+                onlineReceivedAt.plusSeconds(1),
+                "OFFLINE",
+                null)).isZero();
+        assertThat(cameraMapper.updateHeartbeat(
+                initial.id(),
+                999999L,
+                "ERROR",
+                onlineReceivedAt.plusSeconds(1),
+                "ONLINE",
+                onlineReceivedAt)).isZero();
 
         CameraHeartbeatState online = cameraMapper
                 .findHeartbeatStateByCameraCode(cameraCode)
@@ -139,11 +166,26 @@ class CameraMapperTest {
         Instant firstErrorReceivedAt = onlineReceivedAt.plusSeconds(10);
         Instant repeatedErrorReceivedAt = firstErrorReceivedAt.plusSeconds(10);
         assertThat(cameraMapper.updateHeartbeat(
-                initial.id(), initial.mediaServerId(), "ERROR", firstErrorReceivedAt)).isEqualTo(1);
+                initial.id(),
+                initial.mediaServerId(),
+                "ERROR",
+                firstErrorReceivedAt,
+                "ONLINE",
+                onlineReceivedAt)).isEqualTo(1);
         assertThat(cameraMapper.updateHeartbeat(
-                initial.id(), initial.mediaServerId(), "ERROR", repeatedErrorReceivedAt)).isEqualTo(1);
+                initial.id(),
+                initial.mediaServerId(),
+                "ERROR",
+                repeatedErrorReceivedAt,
+                "ERROR",
+                firstErrorReceivedAt)).isEqualTo(1);
         assertThat(cameraMapper.updateHeartbeat(
-                initial.id(), initial.mediaServerId(), "ONLINE", firstErrorReceivedAt)).isZero();
+                initial.id(),
+                initial.mediaServerId(),
+                "ONLINE",
+                firstErrorReceivedAt,
+                "ERROR",
+                repeatedErrorReceivedAt)).isZero();
 
         CameraHeartbeatState error = cameraMapper
                 .findHeartbeatStateByCameraCode(cameraCode)
@@ -164,7 +206,19 @@ class CameraMapperTest {
 
         Instant recoveredAt = repeatedErrorReceivedAt.plusSeconds(40);
         assertThat(cameraMapper.updateHeartbeat(
-                initial.id(), initial.mediaServerId(), "ONLINE", recoveredAt)).isEqualTo(1);
+                initial.id(),
+                initial.mediaServerId(),
+                "ONLINE",
+                recoveredAt,
+                "ERROR",
+                repeatedErrorReceivedAt)).isZero();
+        assertThat(cameraMapper.updateHeartbeat(
+                initial.id(),
+                initial.mediaServerId(),
+                "ONLINE",
+                recoveredAt,
+                "OFFLINE",
+                repeatedErrorReceivedAt)).isEqualTo(1);
         CameraHeartbeatState recovered = cameraMapper
                 .findHeartbeatStateByCameraCode(cameraCode)
                 .orElseThrow();
@@ -174,26 +228,46 @@ class CameraMapperTest {
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void concurrentOlderReceiptCannotOverwriteNewerReceipt() throws Exception {
+    void concurrentHeartbeatReadsDoNotPrelockAndNewestReceiptWins() throws Exception {
         String cameraCode = "recording-fixture-camera-153001";
         Long cameraId = 153001L;
         Long mediaServerId = 152001L;
         Instant olderReceivedAt = Instant.parse("2099-07-20T02:00:00Z");
         Instant newerReceivedAt = olderReceivedAt.plusSeconds(1);
         CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch startOlderUpdate = new CountDownLatch(1);
+        CountDownLatch startNewerUpdate = new CountDownLatch(1);
 
         try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
             Future<Integer> olderUpdate = executor.submit(() -> updateAfterSignal(
-                    ready, start, cameraId, mediaServerId, "ERROR", olderReceivedAt));
+                    ready,
+                    startOlderUpdate,
+                    cameraCode,
+                    cameraId,
+                    mediaServerId,
+                    "ERROR",
+                    olderReceivedAt));
             Future<Integer> newerUpdate = executor.submit(() -> updateAfterSignal(
-                    ready, start, cameraId, mediaServerId, "ONLINE", newerReceivedAt));
+                    ready,
+                    startNewerUpdate,
+                    cameraCode,
+                    cameraId,
+                    mediaServerId,
+                    "ONLINE",
+                    newerReceivedAt));
 
-            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
-            start.countDown();
+            boolean concurrentReadsReady = ready.await(10, TimeUnit.SECONDS);
+            if (!concurrentReadsReady) {
+                startOlderUpdate.countDown();
+                startNewerUpdate.countDown();
+            }
+            assertThat(concurrentReadsReady).isTrue();
 
+            startOlderUpdate.countDown();
+            assertThat(olderUpdate.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+
+            startNewerUpdate.countDown();
             assertThat(newerUpdate.get(10, TimeUnit.SECONDS)).isEqualTo(1);
-            assertThat(olderUpdate.get(10, TimeUnit.SECONDS)).isIn(0, 1);
 
             CameraHeartbeatState latest = cameraMapper
                     .findHeartbeatStateByCameraCode(cameraCode)
@@ -209,15 +283,56 @@ class CameraMapperTest {
     private int updateAfterSignal(
             CountDownLatch ready,
             CountDownLatch start,
+            String cameraCode,
             Long cameraId,
             Long mediaServerId,
             String status,
             Instant receivedAt) throws InterruptedException {
-        ready.countDown();
-        if (!start.await(10, TimeUnit.SECONDS)) {
-            throw new IllegalStateException("Concurrent heartbeat test did not start in time");
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        Integer result = transaction.execute(ignored -> {
+            CameraHeartbeatState expected = cameraMapper
+                    .findHeartbeatStateByCameraCode(cameraCode)
+                    .orElseThrow();
+            ready.countDown();
+            try {
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Concurrent heartbeat test did not start in time");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Concurrent heartbeat test was interrupted", exception);
+            }
+
+            int updated = cameraMapper.updateHeartbeat(
+                    cameraId,
+                    mediaServerId,
+                    status,
+                    receivedAt,
+                    expected.status(),
+                    expected.lastHeartbeat());
+            if (updated == 1) {
+                return 1;
+            }
+
+            CameraHeartbeatState latest = cameraMapper
+                    .findHeartbeatStateByCameraCodeForUpdate(cameraCode)
+                    .orElseThrow();
+            if (latest.lastHeartbeat() != null
+                    && !receivedAt.isAfter(latest.lastHeartbeat())) {
+                return 0;
+            }
+
+            return cameraMapper.updateHeartbeat(
+                    cameraId,
+                    mediaServerId,
+                    status,
+                    receivedAt,
+                    latest.status(),
+                    latest.lastHeartbeat());
+        });
+        if (result == null) {
+            throw new IllegalStateException("Concurrent heartbeat transaction returned no result");
         }
-        return cameraMapper.updateHeartbeat(
-                cameraId, mediaServerId, status, receivedAt);
+        return result;
     }
 }

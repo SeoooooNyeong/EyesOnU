@@ -907,7 +907,7 @@ Content-Type: application/json
 - 정상 처리 시 카메라의 `lastHeartbeat`, `status`, `updatedAt`을 갱신하고 `204 No Content`를 반환한다.
 - `lastHeartbeat`에는 인증·검증을 통과한 요청이 중앙 Spring Boot 애플리케이션 서비스에 진입한 `receivedAt`을 저장한다. 관리자 API와 프론트엔드의 필드명 및 UTC 날짜·시간 표시 형식은 유지된다.
 - `occurredAt`은 Pi5가 카메라 상태를 관측한 시각이다. UTC 오프셋을 포함한 RFC 3339 필수값 계약은 유지하지만, 이번 단계에서는 DB 저장, 상태 적용 순서, `OFFLINE` timeout 계산에 사용하지 않는다.
-- 같은 카메라의 요청은 행 잠금으로 상태 변경과 로그 판정을 직렬화하고, UPDATE의 `last_heartbeat < receivedAt` 조건으로 더 과거인 서버 수신 시각이 최신 값을 덮어쓰지 못하게 한다.
+- 같은 카메라의 요청은 조회 시 행 잠금을 선점하지 않는다. 상태와 `last_heartbeat`를 기대값으로 확인하는 조건부 UPDATE로 경쟁을 감지하고, 충돌한 요청만 최신 행을 잠금 조회해 재판정·재시도한다. `last_heartbeat < receivedAt` 조건은 더 과거인 서버 수신 시각이 최신 값을 덮어쓰지 못하게 한다.
 - 상태는 Pi5의 `occurredAt`이 아니라 중앙 서버 수신 순서로 적용한다. 따라서 과거에 관측한 `occurredAt`을 가진 요청이 나중에 도착하면 그 도착 순서대로 상태가 반영될 수 있다. 관측 순서까지 보장해야 하면 후속 작업에서 `last_status_occurred_at` 컬럼 또는 장치별 단조 증가 sequence를 도입한다.
 - 미디어 서버가 보내는 상태는 `ONLINE` 또는 `ERROR`이며, `OFFLINE`은 중앙 서버가 `lastHeartbeat` 기준 timeout으로 판정한다. 반복되는 `ERROR` Heartbeat도 `lastHeartbeat`를 갱신하므로 정상 수신 중인 카메라는 `OFFLINE`으로 바뀌지 않는다.
 - `detail`은 카메라 테이블에 저장하지 않는다. `ERROR`로 실제 전이될 때만 줄바꿈 등 제어 문자를 정제한 진단 로그에 제한적으로 남기며, Heartbeat마다 감사 로그를 생성하지 않는다.
