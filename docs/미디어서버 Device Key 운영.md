@@ -82,7 +82,7 @@ curl --fail-with-body --request POST \
   --data '{"occurredAt":"2026-07-20T02:00:00Z","status":"ONLINE","detail":null}'
 ```
 
-정상 응답은 본문 없이 HTTP `204`다. 중앙 서버는 요청의 `occurredAt`을 UTC instant로 저장한다.
+정상 응답은 본문 없이 HTTP `204`다. 중앙 서버는 인증·검증을 통과한 요청이 Spring Boot 서비스에 진입한 시각을 `last_heartbeat`에 저장한다. 요청의 `occurredAt`은 Pi5의 카메라 상태 관측 시각으로 계속 필수이며 RFC 3339 형식을 유지하지만, DB 저장이나 상태 적용 순서에는 사용하지 않는다.
 
 ```sql
 SELECT id, camera_code, status, last_heartbeat, updated_at
@@ -94,7 +94,9 @@ WHERE camera_code = 'camera-01';
 - Device Key 형식·keyId·secret 오류 또는 비활성화된 키: `401` (`INVALID_DEVICE_KEY`)
 - 인증된 미디어 서버에 속하지 않는 카메라: `403` (`ACCESS_DENIED`)
 - 존재하지 않는 카메라: `404` (`RESOURCE_NOT_FOUND`)
-- Heartbeat 발신을 중단한 뒤 30초 timeout과 다음 상태 확인 주기를 기다리면 `status = 'OFFLINE'`으로 전환된다. `last_heartbeat`는 변경되지 않는다.
+- `ONLINE`과 `ERROR` Heartbeat 모두 서버 수신 시각을 갱신한다. `ERROR` 상태가 반복되어도 정상 수신 중이면 timeout 대상이 아니다.
+- Heartbeat 발신을 중단한 뒤 서버가 마지막으로 수신한 `last_heartbeat` 기준 30초 timeout과 다음 상태 확인 주기를 기다리면 `status = 'OFFLINE'`으로 전환된다. `last_heartbeat`는 변경되지 않는다.
+- 상태는 Pi5의 `occurredAt`이 아니라 중앙 서버 도착 순서로 적용된다. 과거 관측 요청이 나중에 도착하면 나중 상태로 반영될 수 있으며, 관측 순서 보장이 필요하면 후속 작업에서 `last_status_occurred_at` 또는 장치 sequence를 추가해야 한다.
 
 ### 녹화 업로드와 메타데이터 등록 순서
 
