@@ -68,6 +68,7 @@
 | `GET` | `/admin/cases/{caseId}/cameras` | 사건의 탐색 카메라 목록 | `caseId` | `200`, `404` |
 | `POST` | `/admin/cases/{caseId}/cameras` | 탐색 카메라 추가·재활성화 | `cameraIds` | `200`, `400`, `404` |
 | `DELETE` | `/admin/cases/{caseId}/cameras/{cameraId}` | 탐색 카메라 제외 | `caseId`, `cameraId` | `204`, `404`, `422` |
+| `GET` | `/admin/cases/{caseId}/route` | 확정 후보 기반 추정 동선 | `caseId` | `200`, `404` |
 | `GET` | `/admin/candidates` | 전체 후보 목록 | 선택적 사건·카메라·판정 상태·탐지 기간, 페이지·정렬 조건 | `200`, `304`, `400` |
 | `GET` | `/admin/candidates/{candidateId}` | 후보 상세 | `candidateId` | `200`, `404` |
 | `PATCH` | `/admin/candidates/{candidateId}/review` | 후보 판정 | `reviewStatus`, `reviewComment`, `version` | `200`, `400`, `404`, `409` |
@@ -781,7 +782,43 @@
 
 ### 6.5 확정 동선 조회
 
-현재 `dev`에는 확정 동선 조회 API가 없다. 목표 계약은 14장을 참고한다.
+`GET /api/v1/admin/cases/{caseId}/route`
+
+관리자가 `CONFIRMED`로 판정한 후보를 카메라 좌표와 결합해 최초 탐지 시각 오름차순으로 반환한다. 별도 동선 데이터를 저장하지 않으며 후보 판정 결과에서 매 요청마다 계산한다. 동일 시각은 `candidateId` 오름차순으로 정렬하고, 같은 카메라에서 확정된 후보도 각각 유지한다.
+
+응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-08-05T08:00:00Z",
+  "data": {
+    "caseId": 101,
+    "caseNumber": "CASE-2026-0417",
+    "missingName": "김민수",
+    "points": [
+      {
+        "candidateId": 501,
+        "sourceType": "REALTIME",
+        "cameraId": 11,
+        "cameraCode": "camera-01",
+        "cameraName": "정문 카메라",
+        "address": "서울특별시 강남구 테헤란로 152",
+        "latitude": 37.5015000,
+        "longitude": 127.0402000,
+        "firstDetectedAt": "2026-08-05T07:40:12Z",
+        "lastDetectedAt": "2026-08-05T07:40:18Z",
+        "bestSimilarity": 0.9123
+      }
+    ]
+  }
+}
+```
+
+- `PENDING`, `KEPT`, `REJECTED` 후보는 응답에 포함하지 않는다.
+- 확정 후보가 없으면 `points: []`를 반환한다.
+- 존재하지 않는 사건은 `404 RESOURCE_NOT_FOUND`를 반환한다.
+- 응답은 `Cache-Control: no-store`이며 시간 필터와 페이지네이션은 제공하지 않는다.
+- 클라이언트가 좌표를 연결한 선은 관측 지점 간 추정선이며 실제 도로 이동 경로를 의미하지 않는다.
 
 ---
 
@@ -1650,9 +1687,9 @@ Jetson은 후보 탐지를 수행하고 해당 카메라를 관리하는 미디�
 
 ---
 
-## 14. 목표 API 계약 — 미구현
+## 14. 후속 목표 API 계약 — 일부 구현
 
-> 이 장의 경로, 필드, 상태 값은 목표 설계다. 현재 `dev`에는 대응 컨트롤러·DTO·DB 마이그레이션이 없으며 클라이언트가 사용해서는 안 된다. 구현 시 별도 검토를 거쳐 변경될 수 있어 현재 호환성을 보장하지 않는다.
+> 14.1과 14.2는 목표 설계이며 현재 호환성을 보장하지 않는다. 14.3의 확정 동선 조회는 구현되어 6.5의 실제 계약을 따른다.
 
 ### 14.1 후보 조회·판정·미디어 목표
 
@@ -1670,7 +1707,8 @@ Jetson은 후보 탐지를 수행하고 해당 카메라를 관리하는 미디�
 - 외부 AI Worker 연동은 Worker Key 인증, claim lease, 멱등 결과·실패 접수 API를 제공한다. heartbeat와 Worker 취소 API는 후속 범위다.
 - 상세 메시지와 REST 계약은 [녹화 분석 Worker API](./recording-analysis-worker-api.md)와 [녹화 AI Worker 연동 계약](./녹화%20AI%20Worker%20연동%20계약.md)을 따른다.
 
-### 14.3 확정 동선 조회 목표
+### 14.3 확정 동선 조회 — 구현 완료
 
-- `GET /api/v1/admin/cases/{caseId}/route`에서 관리자 확정 후보를 탐지 시각 순으로 조회하는 계약을 목표로 한다.
-- 실제 구현 전에는 경로, 응답 구조와 시간 필터의 호환성을 보장하지 않는다.
+- `GET /api/v1/admin/cases/{caseId}/route`에서 관리자 확정 후보를 최초 탐지 시각과 후보 ID 순으로 조회한다.
+- 카메라의 위도·경도와 주소를 함께 반환하며 별도 동선 테이블은 사용하지 않는다.
+- 응답 구조와 오류 계약은 6.5를 따른다.
