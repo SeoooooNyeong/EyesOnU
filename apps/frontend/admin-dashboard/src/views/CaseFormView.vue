@@ -21,6 +21,7 @@ import {
   APPEARANCE_LIMITS,
   getAppearanceCategory
 } from "../domain/appearancePicker";
+import { normalizeCasePhoto } from "../domain/photoNormalizer";
 
 const router = useRouter();
 const route = useRoute();
@@ -32,6 +33,8 @@ const loading = ref(false);
 const loadError = ref("");
 const operationError = ref("");
 const photoError = ref("");
+const photoInputError = ref("");
+const photoProcessing = ref(false);
 const submitting = ref(false);
 const deletingPhoto = ref(false);
 const initialForm = ref(null);
@@ -40,6 +43,8 @@ const caseStatus = ref(null);
 const pendingPhotoError = ref("");
 let loadRequestId = 0;
 let submitRequestId = 0;
+let photoProcessId = 0;
+let photoAbortController = null;
 
 const currentYear = new Date().getFullYear();
 const createEmptyForm = () => ({
@@ -93,11 +98,17 @@ const appearanceModel = computed({
 const pageTitle = computed(() => isEditMode.value ? "사건 정보 수정" : "신규 사건 등록");
 const pageDescription = computed(() => isEditMode.value ? "등록된 사건 정보를 확인하고 수정합니다." : "필수 입력값 검증과 등록 확인 모달을 제공합니다.");
 const submitText = computed(() => {
+  if (photoProcessing.value) return "사진 처리 중";
   if (submitting.value) return isEditMode.value ? "저장 중" : "등록 중";
   return isEditMode.value ? "사건 정보 저장" : "사건 등록 · ID 발급";
 });
 const confirmTitle = computed(() => isEditMode.value ? "사건 정보를 저장할까요?" : "사건을 등록할까요?");
-const confirmMessage = computed(() => isEditMode.value ? "수정한 사건 정보가 저장됩니다." : "기본 사건 정보를 등록한 뒤 사진을 업로드합니다.");
+const confirmMessage = computed(() => {
+  if (isEditMode.value) return "수정한 사건 정보가 저장됩니다.";
+  return form.photoFile
+    ? "기본 사건 정보를 등록한 뒤 선택한 사진을 업로드합니다."
+    : "사진 없이 기본 사건 정보를 등록합니다.";
+});
 const ageLabel = computed(() => {
   const year = Number(form.birthYear);
   if (!year || year < 1900) return "";
@@ -111,9 +122,6 @@ const syncBirthYearFromAge = () => {
   const age = Number(form.age);
   if (age > 0 && age < 130) form.birthYear = String(currentYear - age + 1);
 };
-
-const acceptedPhotoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-const maxPhotoBytes = 10 * 1024 * 1024;
 
 const snapshotForm = () => JSON.parse(JSON.stringify({
   ...form,
@@ -163,36 +171,65 @@ const validate = () => {
     errors.value.appearanceFields = appearanceFieldErrors;
   }
 
-  if (!isEditMode.value && !form.photoFile) {
-    errors.value.photo = "사진을 선택해 주세요.";
-  }
-
-  if (form.photoFile && !acceptedPhotoTypes.has(form.photoFile.type)) {
-    errors.value.photo = "JPEG, PNG, WebP 이미지만 업로드할 수 있습니다.";
-  } else if (form.photoFile?.size > maxPhotoBytes) {
-    errors.value.photo = "사진은 10MB 이하여야 합니다.";
-  }
+  if (photoInputError.value) errors.value.photo = photoInputError.value;
 
   return Object.keys(errors.value).length === 0;
 };
 
-const setPhoto = (file) => {
+const clearSelectedPhoto = () => {
+  if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
+  photoObjectUrl = "";
+  photoPreviewUrl.value = "";
+  form.photoFile = null;
+  form.photo = "";
+};
+
+const cancelPhotoProcessing = () => {
+  photoProcessId += 1;
+  photoAbortController?.abort();
+  photoAbortController = null;
+  photoProcessing.value = false;
+};
+
+const discardPhotoSelection = () => {
+  cancelPhotoProcessing();
+  clearSelectedPhoto();
+  photoInputError.value = "";
+  errors.value.photo = "";
+  if (fileInput.value) fileInput.value.value = "";
+};
+
+const setPhoto = async (file) => {
   if (!file || isClosed.value || submitting.value || deletingPhoto.value) return;
+  const processId = ++photoProcessId;
+  photoAbortController?.abort();
+  const controller = new AbortController();
+  photoAbortController = controller;
   errors.value.photo = "";
   photoError.value = "";
-  if (!acceptedPhotoTypes.has(file.type)) {
-    errors.value.photo = "JPEG, PNG, WebP 이미지만 업로드할 수 있습니다.";
-    return;
+  photoInputError.value = "";
+  clearSelectedPhoto();
+  photoProcessing.value = true;
+
+  try {
+    const normalizedPhoto = await normalizeCasePhoto(file, { signal: controller.signal });
+    if (processId !== photoProcessId) return;
+    form.photoFile = normalizedPhoto;
+    form.photo = normalizedPhoto.name;
+    photoObjectUrl = URL.createObjectURL(normalizedPhoto);
+    photoPreviewUrl.value = photoObjectUrl;
+  } catch (error) {
+    if (processId === photoProcessId && error?.name !== "AbortError") {
+      photoInputError.value = error?.message || "사진을 처리하지 못했습니다. 다른 사진을 선택해 주세요.";
+      errors.value.photo = photoInputError.value;
+    }
+  } finally {
+    if (processId === photoProcessId) {
+      photoAbortController = null;
+      photoProcessing.value = false;
+      if (fileInput.value) fileInput.value.value = "";
+    }
   }
-  if (file.size > maxPhotoBytes) {
-    errors.value.photo = "사진은 10MB 이하여야 합니다.";
-    return;
-  }
-  if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
-  form.photoFile = file;
-  form.photo = file.name;
-  photoObjectUrl = URL.createObjectURL(file);
-  photoPreviewUrl.value = photoObjectUrl;
 };
 
 const onPhotoChange = (event) => setPhoto(event.target.files?.[0]);
@@ -206,7 +243,7 @@ const saveDraft = () => {
 };
 
 const submit = () => {
-  if (submitting.value || deletingPhoto.value || isClosed.value) return;
+  if (submitting.value || deletingPhoto.value || photoProcessing.value || isClosed.value) return;
   operationError.value = "";
   if (validate()) confirmOpen.value = true;
 };
@@ -217,15 +254,14 @@ const closeConfirm = () => {
 
 const loadCase = async () => {
   const requestId = ++loadRequestId;
+  cancelPhotoProcessing();
   loadError.value = "";
   operationError.value = "";
   photoError.value = "";
+  photoInputError.value = "";
 
   if (!isEditMode.value) {
-    if (photoObjectUrl) {
-      URL.revokeObjectURL(photoObjectUrl);
-      photoObjectUrl = "";
-    }
+    clearSelectedPhoto();
     Object.assign(form, createEmptyForm());
     initialForm.value = null;
     existingPhotoUrl.value = "";
@@ -240,11 +276,7 @@ const loadCase = async () => {
   try {
     const detail = await getCase(route.params.caseId);
     if (requestId !== loadRequestId) return;
-    if (photoObjectUrl) {
-      URL.revokeObjectURL(photoObjectUrl);
-      photoObjectUrl = "";
-    }
-    photoPreviewUrl.value = "";
+    clearSelectedPhoto();
     Object.assign(form, createEmptyForm(), caseDetailToForm(detail), { photoFile: null });
     initialForm.value = snapshotForm();
     existingPhotoUrl.value = detail.photoUrl || "";
@@ -273,7 +305,7 @@ watch(() => route.params.caseId, () => {
 }, { immediate: true });
 
 const persist = async () => {
-  if (submitting.value || deletingPhoto.value) return;
+  if (submitting.value || deletingPhoto.value || photoProcessing.value) return;
   const requestId = ++submitRequestId;
   const editCaseId = route.params.caseId == null ? null : String(route.params.caseId);
   const selectedPhoto = form.photoFile;
@@ -285,19 +317,21 @@ const persist = async () => {
   try {
     if (!editCaseId) {
       const created = await createCase(buildCreateCasePayload(form));
-      try {
-        await putCasePhoto(created.id, selectedPhoto);
-      } catch (error) {
-        if (!isCurrentRequest()) return;
-        const createdCaseLabel = [created.caseNumber, `ID ${created.id}`].filter(Boolean).join(" · ");
-        pendingPhotoError.value = `${createdCaseLabel} 사건은 등록됐지만 사진 업로드에 실패했습니다. ${error?.message || "사진을 다시 선택해 업로드해 주세요."}`;
-        localStorage.removeItem("eyes-for-u-case-draft");
-        confirmOpen.value = false;
-        await router.replace({
-          path: `/admin/cases/${created.id}/edit`,
-          query: { photoUpload: "failed" }
-        });
-        return;
+      if (selectedPhoto) {
+        try {
+          await putCasePhoto(created.id, selectedPhoto);
+        } catch (error) {
+          if (!isCurrentRequest()) return;
+          const createdCaseLabel = [created.caseNumber, `ID ${created.id}`].filter(Boolean).join(" · ");
+          pendingPhotoError.value = `${createdCaseLabel} 사건은 등록됐지만 사진 업로드에 실패했습니다. ${error?.message || "사진을 다시 선택해 업로드해 주세요."}`;
+          localStorage.removeItem("eyes-for-u-case-draft");
+          confirmOpen.value = false;
+          await router.replace({
+            path: `/admin/cases/${created.id}/edit`,
+            query: { photoUpload: "failed" }
+          });
+          return;
+        }
       }
 
       localStorage.removeItem("eyes-for-u-case-draft");
@@ -354,7 +388,7 @@ const persist = async () => {
 };
 
 const removePhoto = async () => {
-  if (!isEditMode.value || !existingPhotoUrl.value || deletingPhoto.value || submitting.value) return;
+  if (!isEditMode.value || !existingPhotoUrl.value || deletingPhoto.value || submitting.value || photoProcessing.value) return;
   if (!window.confirm("등록된 사진을 삭제할까요?")) return;
 
   const caseId = String(route.params.caseId);
@@ -365,13 +399,7 @@ const removePhoto = async () => {
     await deleteCasePhoto(caseId);
     if (loadContextId !== loadRequestId || String(route.params.caseId) !== caseId) return;
     existingPhotoUrl.value = "";
-    form.photo = "";
-    form.photoFile = null;
-    photoPreviewUrl.value = "";
-    if (photoObjectUrl) {
-      URL.revokeObjectURL(photoObjectUrl);
-      photoObjectUrl = "";
-    }
+    clearSelectedPhoto();
   } catch (error) {
     if (loadContextId === loadRequestId && String(route.params.caseId) === caseId) {
       photoError.value = error?.message || "사진을 삭제하지 못했습니다.";
@@ -384,6 +412,7 @@ const removePhoto = async () => {
 onBeforeUnmount(() => {
   submitRequestId += 1;
   loadRequestId += 1;
+  cancelPhotoProcessing();
   if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
 });
 </script>
@@ -426,17 +455,21 @@ onBeforeUnmount(() => {
           <label class="required-field"><span class="field-title">년생</span><input v-model="form.birthYear" :disabled="isClosed || submitting" inputmode="numeric" placeholder="예: 1952" @input="syncAgeFromBirthYear" /><small>{{ errors.birthYear }}</small></label>
           <label><span class="field-title">나이</span><input v-model="form.age" :disabled="isClosed || submitting" inputmode="numeric" placeholder="예: 74" @input="syncBirthYearFromAge" /><small>{{ ageLabel }}</small></label>
         </div>
-        <label class="required-field"><span class="field-title">사진 업로드</span>
-          <input ref="fileInput" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" :disabled="isClosed || submitting || deletingPhoto" @change="onPhotoChange" />
-          <button :class="['file-dropzone', photoDisplayUrl && 'has-preview']" type="button" :disabled="isClosed || submitting || deletingPhoto" @click="fileInput?.click()" @dragover.prevent @drop.prevent="onPhotoDrop">
+        <label><span class="field-title">사진 업로드 <span class="optional-field">선택</span></span>
+          <input ref="fileInput" class="visually-hidden" type="file" accept="image/*,.heic,.heif" :disabled="isClosed || submitting || deletingPhoto" @change="onPhotoChange" />
+          <button :class="['file-dropzone', photoDisplayUrl && 'has-preview', photoProcessing && 'is-processing']" type="button" :disabled="isClosed || submitting || deletingPhoto" @click="fileInput?.click()" @dragover.prevent @drop.prevent="onPhotoDrop">
             <img v-if="photoDisplayUrl" :src="photoDisplayUrl" alt="등록된 실종자 사진" />
-            <span v-else>{{ form.photo || "사진을 선택하거나 이 영역에 드래그하세요" }}</span>
-            <FolderOpen v-if="!photoDisplayUrl" :size="18" />
+            <span v-else>{{ photoProcessing ? "사진 처리 중..." : form.photo || "사진을 선택하거나 이 영역에 드래그하세요" }}</span>
+            <FolderOpen v-if="!photoDisplayUrl && !photoProcessing" :size="18" />
           </button>
+          <small class="photo-help">선택 사항 · JPEG, PNG, WebP, HEIC/HEIF · 최대 10MB</small>
           <small>{{ errors.photo }}</small>
         </label>
+        <div v-if="photoInputError || form.photoFile || photoProcessing" class="form-actions">
+          <button class="ghost-button" type="button" :disabled="isClosed || submitting || deletingPhoto" @click="discardPhotoSelection">사진 선택 취소</button>
+        </div>
         <div v-if="existingPhotoUrl" class="form-actions">
-          <button class="ghost-button" type="button" :disabled="deletingPhoto || submitting" @click="removePhoto">{{ deletingPhoto ? "삭제 중" : "기존 사진 삭제" }}</button>
+          <button class="ghost-button" type="button" :disabled="deletingPhoto || submitting || photoProcessing" @click="removePhoto">{{ deletingPhoto ? "삭제 중" : "기존 사진 삭제" }}</button>
         </div>
         <div v-if="photoError" class="form-error">{{ photoError }}</div>
       </section>
@@ -468,8 +501,8 @@ onBeforeUnmount(() => {
 
       <div class="form-actions">
         <button class="ghost-button" :disabled="submitting" @click="router.back()">취소</button>
-        <button class="ghost-button" :disabled="isClosed || submitting || deletingPhoto" @click="saveDraft">임시저장</button>
-        <button class="primary-button" :disabled="isClosed || submitting || deletingPhoto" @click="submit">{{ submitText }}</button>
+        <button class="ghost-button" :disabled="isClosed || submitting || deletingPhoto || photoProcessing" @click="saveDraft">임시저장</button>
+        <button class="primary-button" :disabled="isClosed || submitting || deletingPhoto || photoProcessing" @click="submit">{{ submitText }}</button>
         <span v-if="draftSaved" class="draft-saved">임시저장됨</span>
       </div>
       <ConfirmModal
@@ -478,7 +511,7 @@ onBeforeUnmount(() => {
         :message="confirmMessage"
         :confirm-text="isEditMode ? '저장' : '등록'"
         :loading="submitting"
-        :confirm-disabled="submitting"
+        :confirm-disabled="submitting || photoProcessing"
         @close="closeConfirm"
         @confirm="persist"
       />

@@ -12,7 +12,9 @@
   "dependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
     "axios": "^1.7.9",
+    "browser-image-compression": "^2.0.2",
     "chart.js": "^4.4.7",
+    "heic-to": "^1.5.2",
     "hls.js": "^1.6.16",
     "lucide-vue-next": "^0.468.0",
     "pinia": "^2.3.0",

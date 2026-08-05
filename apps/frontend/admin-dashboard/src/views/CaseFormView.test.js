@@ -18,7 +18,12 @@ const routing = vi.hoisted(() => ({
   }
 }));
 
+const photoNormalizer = vi.hoisted(() => ({
+  normalizeCasePhoto: vi.fn()
+}));
+
 vi.mock("../api/caseApi", () => caseApi);
+vi.mock("../domain/photoNormalizer", () => photoNormalizer);
 vi.mock("vue-router", () => ({
   useRoute: () => routing.route,
   useRouter: () => routing.router
@@ -92,11 +97,16 @@ function setValue(element, value) {
   element.dispatchEvent(new Event(element.tagName === "SELECT" ? "change" : "input", { bubbles: true }));
 }
 
-function choosePhoto(root, name = "person.png") {
+function dispatchPhoto(root, photo) {
   const input = root.querySelector('input[type="file"]');
-  const photo = new File(["image"], name, { type: "image/png" });
   Object.defineProperty(input, "files", { configurable: true, value: [photo] });
   input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+async function choosePhoto(root, name = "person.png") {
+  const photo = new File(["image"], name, { type: "image/png" });
+  dispatchPhoto(root, photo);
+  await flushUi();
   return photo;
 }
 
@@ -117,7 +127,7 @@ async function selectAppearanceFeature(root, key, label) {
   await nextTick();
 }
 
-async function fillRequiredForm(root) {
+async function fillRequiredFields(root) {
   setValue(fieldByTitle(root, "신고자 이름"), "박신고");
   setValue(fieldByTitle(root, "연락처"), "010-1234-5678");
   setValue(fieldByTitle(root, "이름"), "테스트 실종자");
@@ -127,11 +137,16 @@ async function fillRequiredForm(root) {
   setValue(fieldByTitle(root, "마지막 목격 시간"), "14:30");
   setValue(fieldByTitle(root, "마지막 목격 위치"), "서울특별시 강남구");
   setValue(fieldByTitle(root, "실종 경위", "textarea"), "산책 후 귀가하지 않았습니다.");
+}
+
+async function fillRequiredForm(root) {
+  await fillRequiredFields(root);
   return choosePhoto(root);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  photoNormalizer.normalizeCasePhoto.mockImplementation(async (photo) => photo);
   routing.route = reactive({ params: {}, query: {}, path: "/admin/cases/new" });
   localStorage.clear();
   Object.defineProperty(URL, "createObjectURL", {
@@ -173,7 +188,7 @@ describe("CaseFormView", () => {
     expect(root.textContent).not.toContain("우선 탐색 범위");
   });
 
-  it("필수 입력값과 사진이 없으면 등록 확인을 열지 않는다", async () => {
+  it("필수 입력값이 없으면 등록 확인을 열지 않되 사진은 요구하지 않는다", async () => {
     const root = await mountView();
 
     expect(root.querySelector(".appearance-section > .form-error")).toBeNull();
@@ -183,9 +198,71 @@ describe("CaseFormView", () => {
     expect(root.querySelector('[role="dialog"]')).toBeNull();
     expect(root.querySelector(".appearance-section > .form-error").textContent)
       .toContain("인상착의 항목을 하나 이상 입력해 주세요.");
-    expect(root.textContent).toContain("사진을 선택해 주세요.");
+    expect(root.textContent).not.toContain("사진을 선택해 주세요.");
+    expect(root.textContent).toContain("선택 사항");
     expect(root.textContent).toContain("인상착의 항목을 하나 이상 입력해 주세요.");
     expect(caseApi.createCase).not.toHaveBeenCalled();
+  });
+
+  it("사진 없이 필수 정보만으로 사건을 등록한다", async () => {
+    caseApi.createCase.mockResolvedValue({
+      id: 30,
+      caseNumber: "EFU-NEW-30",
+      status: "RECEIVED"
+    });
+    const root = await mountView();
+    await fillRequiredFields(root);
+
+    buttonByText(root, "사건 등록 · ID 발급").click();
+    await nextTick();
+
+    expect(root.querySelector('[role="dialog"]').textContent)
+      .toContain("사진 없이 기본 사건 정보를 등록합니다.");
+    buttonByText(root, "등록").click();
+    await flushUi();
+
+    expect(caseApi.createCase).toHaveBeenCalledOnce();
+    expect(caseApi.putCasePhoto).not.toHaveBeenCalled();
+    expect(routing.router.push).toHaveBeenCalledWith("/admin/cases/30");
+  });
+
+  it("사진 정규화 실패를 표시하고 사건 등록을 시작하지 않는다", async () => {
+    photoNormalizer.normalizeCasePhoto.mockRejectedValue(new Error("지원하지 않는 카메라 사진입니다."));
+    const root = await mountView();
+    await fillRequiredFields(root);
+    await choosePhoto(root, "broken.heic");
+
+    expect(root.textContent).toContain("지원하지 않는 카메라 사진입니다.");
+    buttonByText(root, "사건 등록 · ID 발급").click();
+    await nextTick();
+
+    expect(caseApi.createCase).not.toHaveBeenCalled();
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("사진 처리 중 등록을 막고 늦게 끝난 이전 선택 결과를 폐기한다", async () => {
+    const first = deferred();
+    const second = deferred();
+    photoNormalizer.normalizeCasePhoto
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const root = await mountView();
+    const firstPhoto = new File(["first"], "first.jpg", { type: "image/jpeg" });
+    const secondPhoto = new File(["second"], "second.jpg", { type: "image/jpeg" });
+
+    dispatchPhoto(root, firstPhoto);
+    await nextTick();
+    expect(buttonByText(root, "사진 처리 중").disabled).toBe(true);
+
+    dispatchPhoto(root, secondPhoto);
+    second.resolve(secondPhoto);
+    await flushUi();
+    first.resolve(firstPhoto);
+    await flushUi();
+
+    expect(root.querySelector('img[alt="등록된 실종자 사진"]')).not.toBeNull();
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.createObjectURL).toHaveBeenCalledWith(secondPhoto);
   });
 
   it("기존 자유문자 인상착의를 직접 입력값으로 보존하고 무변경 PATCH를 만들지 않는다", async () => {
@@ -384,7 +461,7 @@ describe("CaseFormView", () => {
     expect(root.textContent).toContain("EFU-NEW-32 · ID 32 사건은 등록됐지만 사진 업로드에 실패했습니다.");
 
     caseApi.putCasePhoto.mockResolvedValue({ photoUrl: "https://storage.example/32.jpg" });
-    const retryPhoto = choosePhoto(root, "retry.png");
+    const retryPhoto = await choosePhoto(root, "retry.png");
     buttonByText(root, "사건 정보 저장").click();
     await nextTick();
     buttonByText(root, "저장").click();
@@ -403,7 +480,7 @@ describe("CaseFormView", () => {
     caseApi.getCase.mockResolvedValue(rawCase());
     caseApi.putCasePhoto.mockResolvedValue({ photoUrl: "https://storage.example/new.jpg" });
     const root = await mountView();
-    const photo = choosePhoto(root, "replacement.png");
+    const photo = await choosePhoto(root, "replacement.png");
 
     buttonByText(root, "사건 정보 저장").click();
     await nextTick();
@@ -455,7 +532,7 @@ describe("CaseFormView", () => {
     caseApi.updateCase.mockReturnValue(pendingUpdate.promise);
     caseApi.putCasePhoto.mockResolvedValue({ photoUrl: "https://storage.example/17-new.jpg" });
     const root = await mountView();
-    const selectedPhoto = choosePhoto(root, "case-17.png");
+    const selectedPhoto = await choosePhoto(root, "case-17.png");
     setValue(fieldByTitle(root, "실종 경위", "textarea"), "첫 번째 사건 수정 중입니다.");
 
     buttonByText(root, "사건 정보 저장").click();
