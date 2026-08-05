@@ -73,6 +73,7 @@ fi
 
 hls_curl_args=(
   --noproxy "*"
+  --location
   --silent
   --show-error
   --fail
