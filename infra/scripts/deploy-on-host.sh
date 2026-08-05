@@ -14,6 +14,27 @@ case "$profile" in
         ;;
 esac
 
+service_names=()
+if [[ -n "${DEPLOY_SERVICES:-}" ]]; then
+    read -r -a service_names <<< "$DEPLOY_SERVICES"
+else
+    # Keep manual deployments backward-compatible: no service list means all apps.
+    service_names=(backend admin reporter)
+fi
+
+services=()
+for service in "${service_names[@]}"; do
+    case "$service" in
+        backend|admin|reporter)
+            services+=("$service-$profile")
+            ;;
+        *)
+            echo "ERROR: unsupported service: $service" >&2
+            exit 2
+            ;;
+    esac
+done
+
 compose() {
     docker compose \
         --env-file "$deploy_env_file" \
@@ -38,7 +59,7 @@ compose config >/dev/null
 cd "$deploy_root"
 sh infra/scripts/cleanup-legacy-containers.sh
 compose --profile "$profile" up -d --build --wait --wait-timeout 180 \
-    "backend-$profile" "admin-$profile" "reporter-$profile"
+    "${services[@]}"
 compose up -d --no-deps --wait --wait-timeout 180 nginx
 compose exec -T nginx nginx -t
 compose exec -T nginx nginx -s reload

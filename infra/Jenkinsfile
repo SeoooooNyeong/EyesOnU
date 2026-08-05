@@ -26,6 +26,52 @@ pipeline {
             }
         }
 
+        stage('Detect relevant changes') {
+            steps {
+                script {
+                    def changedFiles = []
+                    currentBuild.changeSets.each { changeSet ->
+                        changeSet.items.each { change ->
+                            change.affectedFiles.each { file -> changedFiles << file.path }
+                        }
+                    }
+                    if (changedFiles.isEmpty()) {
+                        changedFiles = sh(
+                            script: "git diff --name-only HEAD^ HEAD 2>/dev/null || git show --pretty='' --name-only HEAD",
+                            returnStdout: true
+                        ).trim().readLines()
+                    }
+                    changedFiles = changedFiles.unique()
+                    def backendChange = changedFiles.any { path -> path.startsWith('apps/backend-api/eyesonu/') }
+                    def adminChange = changedFiles.any { path -> path.startsWith('apps/frontend/admin-dashboard/') }
+                    def reporterChange = changedFiles.any { path -> path.startsWith('apps/frontend/reporter-webapp/') }
+                    def infraChange = changedFiles.any { path -> path.startsWith('infra/') }
+                    def relevantChange = backendChange || adminChange || reporterChange || infraChange
+                    def deployServices = []
+
+                    if (backendChange || infraChange) {
+                        deployServices << 'backend'
+                    }
+                    if (adminChange || infraChange) {
+                        deployServices << 'admin'
+                    }
+                    if (reporterChange || infraChange) {
+                        deployServices << 'reporter'
+                    }
+
+                    env.RELEVANT_CHANGE = relevantChange ? 'true' : 'false'
+                    env.BACKEND_CHANGE = backendChange ? 'true' : 'false'
+                    env.ADMIN_CHANGE = adminChange ? 'true' : 'false'
+                    env.REPORTER_CHANGE = reporterChange ? 'true' : 'false'
+                    env.INFRA_CHANGE = infraChange ? 'true' : 'false'
+                    env.DEPLOY_SERVICES = deployServices.join(' ')
+                    echo "Changed files: ${changedFiles.join(', ')}"
+                    echo "Relevant CI/CD change: ${env.RELEVANT_CHANGE}"
+                    echo "Services to deploy: ${env.DEPLOY_SERVICES ?: 'none'}"
+                }
+            }
+        }
+
         stage('Resolve branch') {
             steps {
                 script {
@@ -43,6 +89,12 @@ pipeline {
         }
 
         stage('Backend build and test') {
+            when {
+                anyOf {
+                    expression { env.BACKEND_CHANGE == 'true' }
+                    expression { env.INFRA_CHANGE == 'true' }
+                }
+            }
             steps {
                 dir('apps/backend-api/eyesonu') {
                     sh './mvnw -B clean verify'
@@ -51,8 +103,17 @@ pipeline {
         }
 
         stage('Frontend build validation') {
+            when {
+                expression { env.RELEVANT_CHANGE == 'true' }
+            }
             parallel {
                 stage('Admin frontend') {
+                    when {
+                        anyOf {
+                            expression { env.ADMIN_CHANGE == 'true' }
+                            expression { env.INFRA_CHANGE == 'true' }
+                        }
+                    }
                     steps {
                         dir('apps/frontend/admin-dashboard') {
                             sh '''
@@ -64,6 +125,12 @@ pipeline {
                     }
                 }
                 stage('Reporter frontend') {
+                    when {
+                        anyOf {
+                            expression { env.REPORTER_CHANGE == 'true' }
+                            expression { env.INFRA_CHANGE == 'true' }
+                        }
+                    }
                     steps {
                         dir('apps/frontend/reporter-webapp') {
                             sh '''
@@ -79,7 +146,10 @@ pipeline {
 
         stage('Deploy to EC2 Docker Engine') {
             when {
-                expression { env.CAN_DEPLOY == 'true' }
+                allOf {
+                    expression { env.CAN_DEPLOY == 'true' }
+                    expression { env.RELEVANT_CHANGE == 'true' }
+                }
             }
             steps {
                 sshagent(credentials: ['eyesonu-ec2-deploy-key']) {
@@ -99,6 +169,7 @@ pipeline {
                            git -C '$DEPLOY_HOST_ROOT' rev-parse --short HEAD 2>/dev/null || echo unknown; \
                            DEPLOY_ROOT='$DEPLOY_HOST_ROOT' \
                            DEPLOY_ENV_FILE='$DEPLOY_HOST_ENV_FILE' \
+                           DEPLOY_SERVICES='$DEPLOY_SERVICES' \
                            bash '$DEPLOY_HOST_ROOT/infra/scripts/deploy-on-host.sh' '$DEPLOY_PROFILE'"
                     '''
                 }
