@@ -14,8 +14,12 @@ const caseApi = vi.hoisted(() => ({
   replaceSearchCondition: vi.fn(),
   updateCaseStatus: vi.fn()
 }));
+const candidateApi = vi.hoisted(() => ({
+  fetchAdminCandidates: vi.fn()
+}));
 
 vi.mock("../api/caseApi", () => caseApi);
+vi.mock("../api/candidateApi", () => candidateApi);
 
 import CaseDetailView from "./CaseDetailView.vue";
 
@@ -37,6 +41,20 @@ const rawCase = (overrides = {}) => ({
   reportedAt: "2026-07-20T01:30:00Z",
   closedAt: null,
   updatedAt: "2026-07-20T02:00:00Z",
+  ...overrides
+});
+
+const candidate = (overrides = {}) => ({
+  id: 501,
+  caseId: 17,
+  caseNumber: "EFU-0123456789ABCDEFGHJKMNPQRS",
+  cameraCode: "CAM-001",
+  cameraName: "강남역 1번 출구",
+  sourceType: "REALTIME",
+  lastDetectedAt: "2026-08-05T03:20:00Z",
+  bestSimilarity: 0.913,
+  reviewStatus: "CONFIRMED",
+  cropUrl: "https://storage.example/candidate.jpg",
   ...overrides
 });
 
@@ -62,7 +80,9 @@ async function mountViewContext() {
     history: createMemoryHistory(),
     routes: [
       { path: "/admin/cases/:caseId", component: CaseDetailView },
-      { path: "/admin/cases", component: { template: "<div>목록</div>" } }
+      { path: "/admin/cases", component: { template: "<div>사건 목록</div>" } },
+      { path: "/admin/candidates/:candidateId", component: { template: "<div>후보 상세</div>" } },
+      { path: "/admin/candidates", component: { template: "<div>후보 목록</div>" } }
     ]
   });
   await router.push("/admin/cases/17");
@@ -112,6 +132,10 @@ beforeEach(() => {
     cameraName: "3번 카메라",
     searchEnabled: true
   }]);
+  candidateApi.fetchAdminCandidates.mockResolvedValue({
+    rows: [],
+    meta: { page: 0, size: 20, totalElements: 0, totalPages: 0 }
+  });
 });
 
 afterEach(() => {
@@ -119,15 +143,22 @@ afterEach(() => {
     app.unmount();
     root.remove();
   }
+  vi.useRealTimers();
 });
 
 describe("CaseDetailView", () => {
-  it("실제 상세·사진을 표시하고 미구현 후보·동선은 빈 상태와 미배정으로 남긴다", async () => {
+  it("실제 상세·사진을 표시하고 사건별 후보와 동선을 독립적으로 조회한다", async () => {
     caseApi.getCase.mockResolvedValue(rawCase());
 
     const root = await mountView();
 
     expect(caseApi.getCase).toHaveBeenCalledWith("17");
+    expect(candidateApi.fetchAdminCandidates).toHaveBeenCalledWith({
+      caseId: "17",
+      page: 0,
+      size: 20,
+      sort: "lastDetectedAt,desc"
+    });
     expect(root.textContent).toContain("김민수");
     expect(root.textContent).toContain("홍길동(보호자) / 01012345678");
     expect(root.textContent).toContain("미배정");
@@ -139,6 +170,166 @@ describe("CaseDetailView", () => {
       .map((option) => option.value);
     expect(options).toEqual(["searching"]);
     expect(root.textContent).toContain("현장 탐색");
+  });
+
+  it("모든 판정 상태의 후보를 표시하고 후보 상세로 이동한다", async () => {
+    caseApi.getCase.mockResolvedValue(rawCase());
+    candidateApi.fetchAdminCandidates.mockResolvedValue({
+      rows: [
+        candidate(),
+        candidate({ id: 502, reviewStatus: "PENDING", sourceType: "RECORDING_ANALYSIS", cropUrl: null }),
+        candidate({ id: 503, reviewStatus: "KEPT" }),
+        candidate({ id: 504, reviewStatus: "REJECTED" })
+      ],
+      meta: { page: 0, size: 20, totalElements: 21, totalPages: 2 }
+    });
+
+    const { root, router } = await mountViewContext();
+
+    expect(root.textContent).toContain("총 21건");
+    expect(root.textContent).toContain("실시간");
+    expect(root.textContent).toContain("녹화");
+    expect(root.textContent).toContain("미판정");
+    expect(root.textContent).toContain("보류");
+    expect(root.textContent).toContain("확정");
+    expect(root.textContent).toContain("제외");
+    expect(root.textContent).toContain("91%");
+    expect(root.querySelectorAll(".candidate-row.detail-candidate")).toHaveLength(4);
+    expect(root.querySelector('.candidate-row img').getAttribute("src")).toBe("https://storage.example/candidate.jpg");
+    expect(root.textContent).toContain("이미지 없음");
+    expect(buttonByText(root, "전체 후보 보기")).toBeTruthy();
+
+    const pushSpy = vi.spyOn(router, "push");
+    root.querySelector(".candidate-row.detail-candidate").click();
+    await flushUi();
+    expect(pushSpy).toHaveBeenCalledWith("/admin/candidates/501");
+  });
+
+  it("20건을 초과한 후보는 사건 필터가 적용된 전체 목록으로 연결한다", async () => {
+    caseApi.getCase.mockResolvedValue(rawCase());
+    candidateApi.fetchAdminCandidates.mockResolvedValue({
+      rows: [candidate()],
+      meta: { page: 0, size: 20, totalElements: 24, totalPages: 2 }
+    });
+    const { root, router } = await mountViewContext();
+
+    const pushSpy = vi.spyOn(router, "push");
+    buttonByText(root, "전체 후보 보기").click();
+    await flushUi();
+
+    expect(pushSpy).toHaveBeenCalledWith({
+      path: "/admin/candidates",
+      query: { caseId: 17 }
+    });
+  });
+
+  it("후보 최초 조회 오류를 사건 본문과 분리하고 다시 시도한다", async () => {
+    caseApi.getCase.mockResolvedValue(rawCase());
+    candidateApi.fetchAdminCandidates
+      .mockRejectedValueOnce(new Error("후보 서버 연결 실패"))
+      .mockResolvedValueOnce({
+        rows: [candidate()],
+        meta: { page: 0, size: 20, totalElements: 1, totalPages: 1 }
+      });
+    const root = await mountView();
+
+    expect(root.textContent).toContain("김민수");
+    expect(root.textContent).toContain("후보 서버 연결 실패");
+
+    buttonByText(root, "다시 시도").click();
+    await flushUi();
+
+    expect(candidateApi.fetchAdminCandidates).toHaveBeenCalledTimes(2);
+    expect(root.textContent).toContain("강남역 1번 출구");
+    expect(root.textContent).not.toContain("후보 서버 연결 실패");
+  });
+
+  it("5초마다 후보를 갱신하고 백그라운드 오류에는 기존 목록을 유지하며 숨김 상태에서는 건너뛴다", async () => {
+    vi.useFakeTimers();
+    caseApi.getCase.mockResolvedValue(rawCase());
+    candidateApi.fetchAdminCandidates
+      .mockResolvedValueOnce({
+        rows: [candidate()],
+        meta: { page: 0, size: 20, totalElements: 1, totalPages: 1 }
+      })
+      .mockRejectedValueOnce(new Error("일시적인 갱신 오류"));
+    const root = await mountView();
+
+    await vi.advanceTimersByTimeAsync(5000);
+    await flushUi();
+
+    expect(candidateApi.fetchAdminCandidates).toHaveBeenCalledTimes(2);
+    expect(root.textContent).toContain("강남역 1번 출구");
+    expect(root.textContent).toContain("최신 후보 목록을 갱신하지 못했습니다. 일시적인 갱신 오류");
+
+    const visibilitySpy = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await vi.advanceTimersByTimeAsync(5000);
+    await flushUi();
+    expect(candidateApi.fetchAdminCandidates).toHaveBeenCalledTimes(2);
+    visibilitySpy.mockRestore();
+  });
+
+  it("자동 갱신으로 후보 판정 변경을 반영한다", async () => {
+    vi.useFakeTimers();
+    caseApi.getCase.mockResolvedValue(rawCase());
+    candidateApi.fetchAdminCandidates
+      .mockResolvedValueOnce({
+        rows: [candidate({ reviewStatus: "PENDING" })],
+        meta: { page: 0, size: 20, totalElements: 1, totalPages: 1 }
+      })
+      .mockResolvedValueOnce({
+        rows: [candidate({ reviewStatus: "CONFIRMED" })],
+        meta: { page: 0, size: 20, totalElements: 1, totalPages: 1 }
+      });
+    const root = await mountView();
+
+    expect(root.querySelector(".candidate-row .status-badge:last-child").textContent.trim()).toBe("미판정");
+    await vi.advanceTimersByTimeAsync(5000);
+    await flushUi();
+    expect(root.querySelector(".candidate-row .status-badge:last-child").textContent.trim()).toBe("확정");
+  });
+
+  it("늦게 도착한 이전 사건 후보 응답이 새 사건 후보를 덮지 않는다", async () => {
+    const oldCandidates = deferred();
+    caseApi.getCase.mockImplementation((caseId) => Promise.resolve(rawCase({
+      id: Number(caseId),
+      caseNumber: `EFU-${caseId}`,
+      missingName: `${caseId}번 사건`
+    })));
+    candidateApi.fetchAdminCandidates.mockImplementation(({ caseId }) => (
+      caseId === "17"
+        ? oldCandidates.promise
+        : Promise.resolve({
+            rows: [candidate({ id: 518, caseId: 18, cameraName: "새 사건 후보" })],
+            meta: { page: 0, size: 20, totalElements: 1, totalPages: 1 }
+          })
+    ));
+    const { root, router } = await mountViewContext();
+
+    await router.push("/admin/cases/18");
+    await flushUi();
+    expect(root.textContent).toContain("새 사건 후보");
+
+    oldCandidates.resolve({
+      rows: [candidate({ cameraName: "늦은 이전 사건 후보" })],
+      meta: { page: 0, size: 20, totalElements: 1, totalPages: 1 }
+    });
+    await flushUi();
+    expect(root.textContent).toContain("새 사건 후보");
+    expect(root.textContent).not.toContain("늦은 이전 사건 후보");
+  });
+
+  it("화면을 벗어나면 후보 자동 갱신 타이머를 정리한다", async () => {
+    vi.useFakeTimers();
+    caseApi.getCase.mockResolvedValue(rawCase());
+    const { root } = await mountViewContext();
+    const mounted = mountedApps.pop();
+
+    mounted.app.unmount();
+    root.remove();
+    await vi.advanceTimersByTimeAsync(10000);
+
+    expect(candidateApi.fetchAdminCandidates).toHaveBeenCalledTimes(1);
   });
 
   it("사건 본문은 설정 조회 완료를 기다리지 않고 먼저 표시한다", async () => {

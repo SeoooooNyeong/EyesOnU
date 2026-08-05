@@ -8,8 +8,18 @@ import {
   listSearchConditions,
   updateCaseStatus
 } from "../api/caseApi";
+import { fetchAdminCandidates } from "../api/candidateApi";
 import CaseSearchSetupCard from "../components/cases/CaseSearchSetupCard.vue";
 import ConfirmModal from "../components/common/ConfirmModal.vue";
+import {
+  candidateSourceLabel,
+  candidateSourceTone,
+  formatCandidateDate,
+  reviewStatusLabel,
+  reviewStatusTone,
+  similarityPercent,
+  similarityTone
+} from "../domain/candidateMapper";
 import { mapCaseDetail, toBackendStatus } from "../domain/caseMapper";
 
 const route = useRoute();
@@ -51,8 +61,11 @@ const searchReadiness = ref({
 });
 const searchingBlockMessage = ref("");
 
-// Candidate and route APIs are not implemented yet. Keep the real empty state instead of mock data.
 const candidates = ref([]);
+const candidateLoading = ref(true);
+const candidateError = ref("");
+const candidateRefreshError = ref("");
+const candidateTotalCount = ref(0);
 const routePoints = ref([]);
 
 const nextStatus = ref("");
@@ -69,6 +82,9 @@ const forceCloseRequired = ref(false);
 let loadRequestId = 0;
 let searchSetupRequestId = 0;
 let actionRequestId = 0;
+let candidateRequestId = 0;
+let candidateRefreshTimer;
+let candidateRefreshInFlight = false;
 
 const statusLabels = Object.freeze(Object.fromEntries(STATUS_STEPS.map((step) => [step.value, step.label])));
 const statusOptions = computed(() => (
@@ -89,6 +105,7 @@ const closeModalMessage = computed(() => forceCloseRequired.value
   ? "미처리 후보 또는 실행 중인 작업이 있습니다. 강제 종료하면 실행 중인 작업이 취소됩니다."
   : "먼저 일반 종료를 시도합니다. 처리 중인 작업이 있으면 강제 종료 여부를 다시 확인합니다.");
 const closeConfirmText = computed(() => forceCloseRequired.value ? "강제 종료" : "사건 종료");
+const hasMoreCandidates = computed(() => candidateTotalCount.value > 20);
 const personSummary = computed(() => {
   if (!item.value) return "—";
   const parts = [item.value.gender || null, item.value.age ? `${item.value.age}세` : null].filter(Boolean);
@@ -111,6 +128,62 @@ function applyStateResponse(state) {
 
 function readableError(error, fallback) {
   return error?.message || fallback;
+}
+
+function resetCandidateState() {
+  candidateRequestId += 1;
+  candidates.value = [];
+  candidateLoading.value = true;
+  candidateError.value = "";
+  candidateRefreshError.value = "";
+  candidateTotalCount.value = 0;
+}
+
+async function loadCandidates({ showLoading = true, preserveOnError = false } = {}) {
+  const requestId = ++candidateRequestId;
+  const caseId = String(route.params.caseId);
+  if (showLoading) candidateLoading.value = true;
+  if (!preserveOnError) candidateError.value = "";
+  candidateRefreshError.value = "";
+
+  try {
+    const result = await fetchAdminCandidates({
+      caseId,
+      page: 0,
+      size: 20,
+      sort: "lastDetectedAt,desc"
+    });
+    if (requestId !== candidateRequestId || String(route.params.caseId) !== caseId) return false;
+    candidates.value = result.rows || [];
+    candidateTotalCount.value = Number(result.meta?.totalElements ?? candidates.value.length);
+    candidateError.value = "";
+    return true;
+  } catch (error) {
+    if (requestId !== candidateRequestId || String(route.params.caseId) !== caseId) return false;
+    const message = readableError(error, "후보 목록을 불러오지 못했습니다.");
+    if (preserveOnError) {
+      candidateRefreshError.value = message;
+    } else {
+      candidates.value = [];
+      candidateTotalCount.value = 0;
+      candidateError.value = message;
+    }
+    return false;
+  } finally {
+    if (showLoading && requestId === candidateRequestId && String(route.params.caseId) === caseId) {
+      candidateLoading.value = false;
+    }
+  }
+}
+
+async function refreshCandidates() {
+  if (document.visibilityState === "hidden" || candidateLoading.value || candidateRefreshInFlight) return;
+  candidateRefreshInFlight = true;
+  try {
+    await loadCandidates({ showLoading: false, preserveOnError: true });
+  } finally {
+    candidateRefreshInFlight = false;
+  }
 }
 
 async function loadSearchSetup(caseId) {
@@ -357,14 +430,22 @@ watch(() => route.params.caseId, () => {
   forceCloseRequired.value = false;
   actionMessage.value = "";
   searchingBlockMessage.value = "";
-  loadCase();
+  resetCandidateState();
+  void loadCase();
+  void loadCandidates();
 });
 
-onMounted(() => loadCase());
+onMounted(() => {
+  void loadCase();
+  void loadCandidates();
+  candidateRefreshTimer = window.setInterval(refreshCandidates, 5000);
+});
 onBeforeUnmount(() => {
   loadRequestId += 1;
   searchSetupRequestId += 1;
   actionRequestId += 1;
+  candidateRequestId += 1;
+  if (candidateRefreshTimer) window.clearInterval(candidateRefreshTimer);
 });
 </script>
 
@@ -496,11 +577,69 @@ onBeforeUnmount(() => {
     </div>
 
     <article class="content-panel">
-      <h2>후보 탐지 목록</h2>
-      <div v-if="candidates.length === 0" class="state-view">
-        <strong>탐지된 후보가 없습니다.</strong>
-        <p>탐색 중 발견된 후보가 여기에 표시됩니다.</p>
+      <div class="section-heading">
+        <div>
+          <h2>후보 탐지 목록</h2>
+          <p v-if="candidateTotalCount">총 {{ candidateTotalCount }}건</p>
+        </div>
+        <button
+          v-if="hasMoreCandidates"
+          type="button"
+          class="ghost-button"
+          @click="router.push({ path: '/admin/candidates', query: { caseId: item.id } })"
+        >전체 후보 보기</button>
       </div>
+      <div v-if="candidateLoading" class="state-view" role="status">
+        <strong>후보 목록을 불러오는 중입니다.</strong>
+      </div>
+      <div v-else-if="candidateError" class="state-view error">
+        <strong>{{ candidateError }}</strong>
+        <button type="button" @click="loadCandidates()">다시 시도</button>
+      </div>
+      <template v-else>
+        <p v-if="candidateRefreshError" class="error-message" role="status">
+          최신 후보 목록을 갱신하지 못했습니다. {{ candidateRefreshError }}
+        </p>
+        <div v-if="candidates.length === 0" class="state-view">
+          <strong>탐지된 후보가 없습니다.</strong>
+          <p>탐색 중 발견된 후보가 여기에 표시됩니다.</p>
+        </div>
+        <template v-else>
+          <button
+            v-for="candidate in candidates"
+            :key="candidate.id"
+            type="button"
+            class="candidate-row detail-candidate"
+            @click="router.push(`/admin/candidates/${candidate.id}`)"
+          >
+            <span class="image-placeholder">
+              <img
+                v-if="candidate.cropUrl"
+                :src="candidate.cropUrl"
+                :alt="`${candidate.cameraCode || 'CCTV'} 후보 캡처`"
+              />
+              <span v-else>이미지 없음</span>
+            </span>
+            <span class="candidate-meta">
+              <strong>{{ candidate.cameraCode || "CCTV 미등록" }}</strong>
+              <small>{{ candidate.cameraName || "카메라 위치 미등록" }}</small>
+              <small>{{ formatCandidateDate(candidate.lastDetectedAt) }}</small>
+              <small>
+                최고 유사도
+                <b :class="['similarity-score', similarityTone(candidate.bestSimilarity)]">
+                  {{ similarityPercent(candidate.bestSimilarity) }}%
+                </b>
+              </small>
+              <span :class="['status-badge', candidateSourceTone(candidate.sourceType)]">
+                {{ candidateSourceLabel(candidate.sourceType) }}
+              </span>
+              <span :class="['status-badge', reviewStatusTone(candidate.reviewStatus)]">
+                {{ reviewStatusLabel(candidate.reviewStatus) }}
+              </span>
+            </span>
+          </button>
+        </template>
+      </template>
     </article>
 
     <ConfirmModal
