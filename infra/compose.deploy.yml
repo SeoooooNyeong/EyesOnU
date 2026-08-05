@@ -123,6 +123,8 @@ services:
     environment:
       TZ: Asia/Seoul
       SPRING_PROFILES_ACTIVE: ${DEV_BACKEND_PROFILE:-prod}
+      WORKER_AUTHENTICATION_KEY: ${WORKER_AUTHENTICATION_KEY:?Set WORKER_AUTHENTICATION_KEY in infra/.env.deploy}
+      WORKER_AUTHENTICATION_ID: ${WORKER_AUTHENTICATION_ID:-recording-ai-worker}
       DB_URL: jdbc:mysql://mysql-dev:3306/${DEV_MYSQL_DATABASE:-eyesonu}?serverTimezone=UTC&characterEncoding=UTF-8
       DB_USERNAME: ${DEV_DB_USERNAME:?Set DEV_DB_USERNAME in infra/.env.deploy}
       DB_PASSWORD: ${DEV_DB_PASSWORD:?Set DEV_DB_PASSWORD in infra/.env.deploy}
@@ -280,6 +282,8 @@ services:
     environment:
       TZ: Asia/Seoul
       SPRING_PROFILES_ACTIVE: prod
+      WORKER_AUTHENTICATION_KEY: ${WORKER_AUTHENTICATION_KEY:?Set WORKER_AUTHENTICATION_KEY in infra/.env.deploy}
+      WORKER_AUTHENTICATION_ID: ${WORKER_AUTHENTICATION_ID:-recording-ai-worker}
       DB_URL: jdbc:mysql://mysql-master:3306/${MASTER_MYSQL_DATABASE:-eyesonu}?serverTimezone=UTC&characterEncoding=UTF-8
       DB_USERNAME: ${MASTER_DB_USERNAME:?Set MASTER_DB_USERNAME in infra/.env.deploy}
       DB_PASSWORD: ${MASTER_DB_PASSWORD:?Set MASTER_DB_PASSWORD in infra/.env.deploy}
