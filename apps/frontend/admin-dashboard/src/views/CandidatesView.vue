@@ -253,11 +253,11 @@ onUnmounted(() => {
     <template v-else>
       <div v-if="filters.view === 'card'" class="candidate-grid">
         <button v-for="item in displayRows" :key="item.id" class="candidate-card" @click="openCandidate(item)">
+          <span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
           <img v-if="item.cropUrl" :src="item.cropUrl" alt="후보 캡처" />
           <span v-else class="image-placeholder large">이미지 없음</span>
           <div class="candidate-card-content">
             <strong>{{ item.caseNumber }}</strong>
-            <span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
             <p>{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
             <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b>
             <div class="candidate-card-bottom-row">
