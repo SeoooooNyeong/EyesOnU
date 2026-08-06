@@ -115,6 +115,25 @@ class AdminCandidateQueryServiceTests {
         verify(signer, never()).createGetUrl("clips/1.mp4");
     }
 
+    @Test
+    void supportsQueueSortModes() {
+        when(mapper.countCandidates(isNull(), isNull(), isNull(), isNull(), isNull(), isNull())).thenReturn(1L);
+        when(mapper.findPage(isNull(), isNull(), isNull(), isNull(), isNull(), isNull(),
+                any(), any(), anyInt(), anyLong())).thenReturn(List.of());
+
+        service.findAll(new AdminCandidateSearchCondition(null, null, null, null, null, null,
+                0, 20, "pendingFirst"));
+        service.findAll(new AdminCandidateSearchCondition(null, null, null, null, null, null,
+                0, 20, "realtimeFirst"));
+
+        verify(mapper).findPage(isNull(), isNull(), isNull(), isNull(), isNull(), isNull(),
+                org.mockito.ArgumentMatchers.eq("pendingFirst"), org.mockito.ArgumentMatchers.eq("asc"),
+                anyInt(), anyLong());
+        verify(mapper).findPage(isNull(), isNull(), isNull(), isNull(), isNull(), isNull(),
+                org.mockito.ArgumentMatchers.eq("realtimeFirst"), org.mockito.ArgumentMatchers.eq("asc"),
+                anyInt(), anyLong());
+    }
+
     private void stubSignedUrls() {
         when(signer.createGetUrl("frames/frame.jpg")).thenReturn("https://storage.example/frame");
         when(signer.createGetUrl("crops/crop.jpg")).thenReturn("https://storage.example/crop");
