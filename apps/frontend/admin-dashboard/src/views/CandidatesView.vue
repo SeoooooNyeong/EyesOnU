@@ -208,14 +208,12 @@ onUnmounted(() => {
         </div>
 
         <div class="candidate-sort-control">
-          <label for="candidate-sort">정렬
-            <select id="candidate-sort" class="candidate-sort-select" v-model="filters.sort">
-              <option value="pendingFirst">미판정 우선</option>
-              <option value="realtimeFirst">실시간 우선</option>
-              <option value="bestSimilarity,desc">유사도 높은 순</option>
-              <option value="lastDetectedAt,desc">탐지 최신순</option>
-            </select>
-          </label>
+          <select id="candidate-sort" class="candidate-sort-select" aria-label="정렬 기준" v-model="filters.sort">
+            <option value="pendingFirst">미판정 우선</option>
+            <option value="realtimeFirst">실시간 우선</option>
+            <option value="bestSimilarity,desc">유사도 높은 순</option>
+            <option value="lastDetectedAt,desc">탐지 최신순</option>
+          </select>
         </div>
       </div>
     </div>
