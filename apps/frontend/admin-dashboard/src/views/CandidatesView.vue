@@ -209,21 +209,6 @@ onUnmounted(() => {
           <option v-for="camera in cameras" :key="camera.id" :value="String(camera.id)">{{ camera.cameraCode }}{{ camera.cameraName ? ` · ${camera.cameraName}` : "" }}</option>
         </select>
       </label>
-      <label>탐지 출처
-        <select v-model="filters.source">
-          <option value="all">전체</option>
-          <option value="REALTIME">실시간</option>
-          <option value="RECORDING_ANALYSIS">녹화영상</option>
-        </select>
-      </label>
-      <label>정렬
-        <select v-model="filters.sort">
-          <option value="pendingFirst">미판정 우선</option>
-          <option value="realtimeFirst">실시간 우선</option>
-          <option value="bestSimilarity,desc">유사도 높은 순</option>
-          <option value="lastDetectedAt,desc">탐지 최신순</option>
-        </select>
-      </label>
       <label>판정 상태
         <select v-model="filters.review">
           <option value="all">전체</option>
@@ -232,9 +217,6 @@ onUnmounted(() => {
           <option value="confirmed">대상 확인</option>
           <option value="rejected">대상 아님</option>
         </select>
-      </label>
-      <label>페이지 크기
-        <select v-model.number="pageSize"><option :value="20">20</option><option :value="50">50</option><option :value="100">100</option></select>
       </label>
     </div>
 
