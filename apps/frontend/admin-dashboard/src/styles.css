@@ -177,7 +177,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .candidate-source-filter-label { color: var(--text-muted); font-size: 12px; font-weight: 600; }
 .candidate-sort-control { display: flex; align-items: center; min-width: 0; }
 .candidate-sort-control label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: #64748b; font-size: 11px; font-weight: 800; white-space: nowrap; }
-.candidate-sort-select { width: 190px; min-height: 38px; border: 1.5px solid #8fb5c5; border-radius: 999px; background-color: #f3f8fb; color: #235f7c; font-weight: 800; box-shadow: 0 2px 5px rgba(35, 95, 124, .08); }
+.candidate-sort-select { width: 160px; min-height: 38px; border: 1.5px solid #8fb5c5; border-radius: 999px; background-color: #f3f8fb; color: #235f7c; font-weight: 800; box-shadow: 0 2px 5px rgba(35, 95, 124, .08); }
 .candidate-sort-select:hover { border-color: #5d9bb6; background-color: #edf6fa; }
 .candidate-sort-select:focus-visible { outline: 3px solid rgba(53, 137, 181, .18); outline-offset: 2px; }
 .candidate-filter-section-heading { display: grid; gap: 3px; min-width: 0; }

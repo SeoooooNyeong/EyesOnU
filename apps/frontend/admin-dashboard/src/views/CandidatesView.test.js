@@ -90,6 +90,7 @@ describe("CandidatesView", () => {
     expect(root.querySelector(".candidate-source-filter-label").textContent).toContain("영상 유형");
     expect(root.querySelector(".candidate-list-actions .candidate-sort-select")).not.toBeNull();
     expect(root.querySelector(".candidate-list-actions .resolved-candidates-toggle")).not.toBeNull();
+    expect(root.querySelector(".candidate-list-actions").firstElementChild.classList.contains("resolved-candidates-toggle-row")).toBe(true);
     expect(realtimeButton).not.toBeNull();
     expect(recordingButton).not.toBeNull();
     realtimeButton.click();
