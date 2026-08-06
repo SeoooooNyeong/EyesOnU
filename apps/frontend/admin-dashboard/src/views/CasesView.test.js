@@ -167,6 +167,28 @@ describe("CasesView", () => {
     expect(getCaseMock).not.toHaveBeenCalled();
   });
 
+  it("retries a failed photo when an accepted list reload returns the same URL", async () => {
+    const photoUrl = "https://storage.example/retry.jpg";
+    listCasesMock.mockResolvedValue(result([
+      rawCase({ photo: "기준 사진", photoUrl })
+    ]));
+
+    mount();
+    await settle();
+
+    root.querySelector(".thumb img").dispatchEvent(new Event("error"));
+    await nextTick();
+    expect(root.querySelector(".thumb img")).toBeNull();
+
+    const statusSelect = root.querySelector(".filter-bar select");
+    statusSelect.value = "searching";
+    statusSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+
+    expect(listCasesMock).toHaveBeenCalledTimes(2);
+    expect(root.querySelector(".thumb img").getAttribute("src")).toBe(photoUrl);
+  });
+
   it("converts screen pages and status filters to API parameters", async () => {
     listCasesMock
       .mockResolvedValueOnce(result([rawCase()], { totalElements: 12, totalPages: 2 }))

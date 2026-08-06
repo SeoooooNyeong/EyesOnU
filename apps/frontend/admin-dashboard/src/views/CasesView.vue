@@ -21,7 +21,7 @@ const page = ref(1);
 const pageSize = ref(10);
 const totalPages = ref(1);
 const totalCount = ref(0);
-const failedPhotoUrls = ref(new Map());
+const failedPhotoUrls = reactive(new Map());
 const selectedCase = computed(() => caseOptions.value.find((item) => item.caseNumber === filters.keyword));
 
 let latestRequestId = 0;
@@ -39,11 +39,11 @@ const errorMessage = (cause, fallback) => cause?.message || fallback;
 const shouldShowPhoto = (item) => (
   typeof item.photoUrl === "string"
   && item.photoUrl.trim().length > 0
-  && failedPhotoUrls.value.get(item.id) !== item.photoUrl
+  && failedPhotoUrls.get(item.id) !== item.photoUrl
 );
 
 const handlePhotoError = (item) => {
-  failedPhotoUrls.value = new Map(failedPhotoUrls.value).set(item.id, item.photoUrl);
+  failedPhotoUrls.set(item.id, item.photoUrl);
 };
 
 const load = async () => {
@@ -55,6 +55,7 @@ const load = async () => {
     const result = await listCases(listParams());
     if (requestId !== latestRequestId) return;
 
+    failedPhotoUrls.clear();
     rows.value = (result.data || []).map(mapCaseListItem);
     totalPages.value = Math.max(1, result.meta?.totalPages || 0);
     totalCount.value = result.meta?.totalElements || 0;
