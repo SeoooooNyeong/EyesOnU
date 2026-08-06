@@ -91,6 +91,18 @@ request_presigned_upload() {
       return 2
     fi
 
+    # The backend has already completed metadata registration for this exact
+    # Idempotency-Key. Retrying with a new key could create a duplicate, so let
+    # the caller remove the stale local job and recording.
+    if [[ "${http_status}" == "409" ]] &&
+       jq -e '
+         .code == "RECORDING_ALREADY_REGISTERED"
+       ' "${response_file}" >/dev/null 2>&1; then
+      echo "WARN: recording was already registered: camera=${camera_code}" >&2
+      rm -f -- "${response_file}"
+      return 3
+    fi
+
     echo "ERROR: recording upload URL request rejected: camera=${camera_code} HTTP=${http_status}" >&2
     sed -n '1,20p' "${response_file}" >&2
     rm -f -- "${response_file}"
@@ -190,7 +202,7 @@ build_recording_times() {
     "$(date -u -d "@${end_epoch}" +'%Y-%m-%dT%H:%M:%S.%6NZ')"
 }
 
-discard_invalid_job() {
+discard_non_retryable_job() {
   local job_path="$1"
   local segment_path="$2"
   local reason="$3"
@@ -208,12 +220,12 @@ discard_invalid_job() {
   esac
 
   if ! rm -f -- "${segment_real}"; then
-    echo "ERROR: failed to delete invalid recording: ${segment_real}" >&2
+    echo "ERROR: failed to delete non-retryable recording: ${segment_real}" >&2
     return 1
   fi
 
   if ! rm -f -- "${job_path}"; then
-    echo "ERROR: failed to delete invalid upload job: ${job_path}" >&2
+    echo "ERROR: failed to delete non-retryable upload job: ${job_path}" >&2
     return 1
   fi
 
@@ -317,6 +329,16 @@ register_recording() {
   }
 
   if [[ ! "${http_status}" =~ ^20[01]$ ]]; then
+    if [[ "${http_status}" == "409" ]] &&
+       jq -e '
+         .code == "RECORDING_ALREADY_REGISTERED"
+       ' "${response_file}" >/dev/null 2>&1; then
+      echo "WARN: recording metadata was already registered: camera=${camera_code}" >&2
+      rm -f -- "${response_file}"
+      printf '%s' 'already-registered'
+      return 0
+    fi
+
     echo "ERROR: recording metadata registration rejected: HTTP ${http_status}" >&2
     sed -n '1,20p' "${response_file}" >&2
     rm -f -- "${response_file}"
@@ -431,7 +453,7 @@ process_job() {
   local_size="$(stat -c '%s' "${segment_path}")"
 
   if ! recording_times="$(build_recording_times "${segment_path}")"; then
-    discard_invalid_job \
+    discard_non_retryable_job \
       "${job_path}" \
       "${segment_path}" \
       "INVALID_RECORDING_FILE" || return 1
@@ -484,10 +506,18 @@ process_job() {
   request_status=$?
 
   if (( request_status == 2 )); then
-    discard_invalid_job \
+    discard_non_retryable_job \
       "${job_path}" \
       "${segment_path}" \
       "INVALID_RECORDING_TIME" || return 1
+    return 0
+  fi
+
+  if (( request_status == 3 )); then
+    discard_non_retryable_job \
+      "${job_path}" \
+      "${segment_path}" \
+      "RECORDING_ALREADY_REGISTERED" || return 1
     return 0
   fi
 
