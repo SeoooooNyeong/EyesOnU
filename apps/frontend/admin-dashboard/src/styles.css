@@ -168,11 +168,11 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .cases-filter-bar .search-button,
 .cases-filter-bar .reset-button { width: 100%; }
 .cases-filter-bar .reset-button { justify-self: stretch; }
-.candidate-filter-bar { grid-template-columns: minmax(220px, 320px) minmax(160px, 220px); justify-content: start; }
+.candidate-filter-bar { grid-template-columns: minmax(220px, 1.35fr) repeat(5, minmax(140px, 1fr)); justify-content: stretch; }
 .candidate-heading-actions { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-.candidate-date-filter { display: flex; align-items: end; gap: var(--form-gap); margin-bottom: 14px; padding: 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #f8fafc; }
+.candidate-date-filter { display: grid; grid-template-columns: minmax(210px, 300px) minmax(210px, 300px) minmax(0, 1fr); align-items: end; gap: var(--form-gap); margin-bottom: 14px; padding: 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #f8fafc; }
 .candidate-date-filter label { display: grid; gap: 6px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
-.candidate-date-filter input { min-width: 210px; }
+.candidate-date-filter input { width: 100%; min-width: 0; }
 .filter-hint { padding-bottom: 10px; color: #7b8794; font-size: 12px; }
 .resolved-candidates-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid #e4e8ef; border-radius: 8px; background: #fbfcfd; color: #64748b; font-size: 13px; font-weight: 700; }
 .resolved-candidates-toggle .ghost-button { min-height: 32px; margin-right: 0; padding: 6px 12px; }
@@ -658,6 +658,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .login-card label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; color: #5d6675; }
 .form-error { color: #b23b32; background: #fff0ee; border: 1px solid #efbcb6; padding: 10px; border-radius: 7px; font-size: 13px; }
 .form-error:empty { display: none; }
+.error-message { margin: 12px 0; padding: 12px 14px; border: 1px solid #efbcb6; border-radius: 8px; background: #fff5f3; color: #9b382f; font-size: 13px; line-height: 1.45; }
 .form-success { margin: 0; color: #276749; background: #edf9f2; border: 1px solid #a9d8bc; padding: 10px; border-radius: 7px; font-size: 13px; }
 .notification-line { display: grid; gap: 4px; }
 .notification-line p { margin: 0; color: #6b7280; }
