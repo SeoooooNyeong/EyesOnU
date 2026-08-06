@@ -223,6 +223,14 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .case-table td.similarity-score { font-size: 17px; font-weight: 800; line-height: 1.2; white-space: nowrap; }
 .case-table tr { transition: background .15s ease; }
 .case-table tbody tr:hover { background: #f3f8fa; }
+.case-table tbody tr.review-amber { background: #fffaf0; }
+.case-table tbody tr.review-blue { background: #f3f8ff; }
+.case-table tbody tr.review-green { background: #f2faf5; }
+.case-table tbody tr.review-gray { background: #f6f7f8; }
+.case-table tbody tr.review-amber:hover { background: #fff5dc; }
+.case-table tbody tr.review-blue:hover { background: #eaf3ff; }
+.case-table tbody tr.review-green:hover { background: #e8f6ed; }
+.case-table tbody tr.review-gray:hover { background: #eef1f3; }
 .case-table tbody tr:focus-visible { outline: 2px solid #2f7896; outline-offset: -2px; }
 .log-detail-cell { display: flex; align-items: center; gap: 8px; min-width: 260px; }
 .log-preview { display: block !important; overflow: hidden; flex: 1; min-width: 0; margin-top: 0 !important; color: #6b7280; text-overflow: ellipsis; white-space: nowrap; }

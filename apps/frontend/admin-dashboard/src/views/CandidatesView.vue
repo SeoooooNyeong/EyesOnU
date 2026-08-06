@@ -242,7 +242,7 @@ onUnmounted(() => {
         <table class="case-table">
           <thead><tr><th>사건</th><th>출처</th><th>CCTV</th><th>카메라</th><th>최근 탐지</th><th>유사도</th><th>상태</th><th></th></tr></thead>
           <tbody>
-            <tr v-for="item in displayRows" :key="item.id">
+            <tr v-for="item in displayRows" :key="item.id" :class="`review-${reviewStatusTone(item.reviewStatus)}`">
               <td>{{ item.caseNumber }}</td>
               <td><span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span></td>
               <td>{{ item.cameraCode }}</td>

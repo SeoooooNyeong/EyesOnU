@@ -101,6 +101,14 @@ describe("CandidatesView", () => {
     expect(candidateApi.fetchAdminCandidates).toHaveBeenLastCalledWith(expect.objectContaining({ sourceType: "REALTIME" }));
   });
 
+  it("applies review tones to table rows", async () => {
+    const { root } = await mountView();
+    root.querySelector('[aria-label="테이블 보기"]').click();
+    await flushUi();
+
+    expect(root.querySelector(".case-table tbody tr").classList.contains("review-amber")).toBe(true);
+  });
+
   it("uses the selected camera and sort in the request", async () => {
     const { root } = await mountView();
     const selects = root.querySelectorAll("select");
