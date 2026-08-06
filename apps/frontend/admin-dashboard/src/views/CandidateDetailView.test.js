@@ -111,6 +111,19 @@ describe("CandidateDetailView", () => {
     expect(candidateApi.reviewAdminCandidate).not.toHaveBeenCalled();
   });
 
+  it("renders a candidate whose confirmation evidence is null", async () => {
+    candidateApi.fetchAdminCandidate.mockResolvedValue({
+      ...candidate,
+      reviewStatus: "CONFIRMED",
+      reviewComment: null
+    });
+
+    const root = await mountView();
+
+    expect(root.textContent).toContain("대상 확인 시 판정 근거를 10자 이상 입력해 주세요.");
+    expect(root.querySelector('button[type="submit"]').disabled).toBe(true);
+  });
+
   it("클립이 없으면 원본 녹화본을 탐지 전후 구간 재생 대상으로 안내한다", async () => {
     candidateApi.fetchAdminCandidate.mockResolvedValue({
       ...candidate,

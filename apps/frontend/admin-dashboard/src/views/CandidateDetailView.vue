@@ -31,7 +31,7 @@ const syncReviewForm = (candidate) => {
 
 const similarityToneClass = computed(() => similarityTone(item.value?.bestSimilarity));
 const confirmationEvidenceTooShort = computed(() => reviewForm.reviewStatus === "CONFIRMED"
-  && reviewForm.reviewComment.trim().length < MIN_CONFIRMATION_EVIDENCE_LENGTH);
+  && (reviewForm.reviewComment || "").trim().length < MIN_CONFIRMATION_EVIDENCE_LENGTH);
 const videoUrl = computed(() => item.value?.clipUrl || item.value?.recordingUrl || "");
 const hasClip = computed(() => Boolean(item.value?.clipUrl));
 const hasRecordingFallback = computed(() => !hasClip.value && Boolean(item.value?.recordingUrl));
