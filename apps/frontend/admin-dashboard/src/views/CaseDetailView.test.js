@@ -17,9 +17,13 @@ const caseApi = vi.hoisted(() => ({
 const candidateApi = vi.hoisted(() => ({
   fetchAdminCandidates: vi.fn()
 }));
+const routeApi = vi.hoisted(() => ({
+  getCaseRoute: vi.fn()
+}));
 
 vi.mock("../api/caseApi", () => caseApi);
 vi.mock("../api/candidateApi", () => candidateApi);
+vi.mock("../api/routeApi", () => routeApi);
 
 import CaseDetailView from "./CaseDetailView.vue";
 
@@ -136,6 +140,49 @@ beforeEach(() => {
     rows: [],
     meta: { page: 0, size: 20, totalElements: 0, totalPages: 0 }
   });
+  routeApi.getCaseRoute.mockResolvedValue({ caseId: 17, points: [] });
+});
+
+describe("CaseDetailView route integration", () => {
+  it("renders route points returned by the case route API", async () => {
+    caseApi.getCase.mockResolvedValue(rawCase());
+    routeApi.getCaseRoute.mockResolvedValue({
+      caseId: 17,
+      points: [
+        {
+          candidateId: 501,
+          cameraCode: "CAM-001",
+          cameraName: "Route Camera 1",
+          sourceType: "REALTIME",
+          firstDetectedAt: "2026-08-05T03:20:00Z",
+          lastDetectedAt: "2026-08-05T03:20:00Z",
+          bestSimilarity: 0.913,
+          address: "Route Address 1",
+          latitude: 37.498,
+          longitude: 127.027
+        },
+        {
+          candidateId: 502,
+          cameraCode: "CAM-002",
+          cameraName: "Route Camera 2",
+          sourceType: "RECORDING_ANALYSIS",
+          firstDetectedAt: "2026-08-05T03:25:00Z",
+          lastDetectedAt: "2026-08-05T03:26:00Z",
+          bestSimilarity: 0.884,
+          address: "Route Address 2",
+          latitude: 37.499,
+          longitude: 127.028
+        }
+      ]
+    });
+
+    const root = await mountView();
+
+    expect(routeApi.getCaseRoute).toHaveBeenCalledWith("17");
+    expect(root.querySelectorAll(".case-detail-main .timeline-item")).toHaveLength(2);
+    expect(root.textContent).toContain("Route Camera 1");
+    expect(root.textContent).toContain("Route Camera 2");
+  });
 });
 
 afterEach(() => {
@@ -159,6 +206,7 @@ describe("CaseDetailView", () => {
       size: 20,
       sort: "lastDetectedAt,desc"
     });
+    expect(routeApi.getCaseRoute).toHaveBeenCalledWith("17");
     expect(root.textContent).toContain("김민수");
     expect(root.textContent).toContain("홍길동(보호자) / 01012345678");
     expect(root.textContent).toContain("미배정");

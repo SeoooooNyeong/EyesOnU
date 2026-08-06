@@ -9,6 +9,7 @@ import {
   updateCaseStatus
 } from "../api/caseApi";
 import { fetchAdminCandidates } from "../api/candidateApi";
+import { getCaseRoute } from "../api/routeApi";
 import CaseSearchSetupCard from "../components/cases/CaseSearchSetupCard.vue";
 import ConfirmModal from "../components/common/ConfirmModal.vue";
 import {
@@ -67,6 +68,8 @@ const candidateError = ref("");
 const candidateRefreshError = ref("");
 const candidateTotalCount = ref(0);
 const routePoints = ref([]);
+const routeLoading = ref(true);
+const routeError = ref("");
 
 const nextStatus = ref("");
 const statusModalOpen = ref(false);
@@ -83,6 +86,7 @@ let loadRequestId = 0;
 let searchSetupRequestId = 0;
 let actionRequestId = 0;
 let candidateRequestId = 0;
+let routeRequestId = 0;
 let candidateRefreshTimer;
 let candidateRefreshInFlight = false;
 
@@ -176,11 +180,46 @@ async function loadCandidates({ showLoading = true, preserveOnError = false } = 
   }
 }
 
+async function loadRoutePoints({ showLoading = true, preserveOnError = false } = {}) {
+  const requestId = ++routeRequestId;
+  const caseId = String(route.params.caseId);
+  if (showLoading) routeLoading.value = true;
+  if (!preserveOnError) routeError.value = "";
+
+  try {
+    const result = await getCaseRoute(caseId);
+    if (requestId !== routeRequestId || String(route.params.caseId) !== caseId) return false;
+    routePoints.value = result?.points || [];
+    routeError.value = "";
+    return true;
+  } catch (error) {
+    if (requestId !== routeRequestId || String(route.params.caseId) !== caseId) return false;
+    if (!preserveOnError) {
+      routePoints.value = [];
+      routeError.value = readableError(error, "확정 동선을 불러오지 못했습니다.");
+    }
+    return false;
+  } finally {
+    if (showLoading && requestId === routeRequestId && String(route.params.caseId) === caseId) {
+      routeLoading.value = false;
+    }
+  }
+}
+
+function detectedTime(point) {
+  const first = formatCandidateDate(point.firstDetectedAt);
+  const last = formatCandidateDate(point.lastDetectedAt);
+  return first === last ? first : `${first} ~ ${last}`;
+}
+
 async function refreshCandidates() {
   if (document.visibilityState === "hidden" || candidateLoading.value || candidateRefreshInFlight) return;
   candidateRefreshInFlight = true;
   try {
-    await loadCandidates({ showLoading: false, preserveOnError: true });
+    await Promise.all([
+      loadCandidates({ showLoading: false, preserveOnError: true }),
+      loadRoutePoints({ showLoading: false, preserveOnError: true })
+    ]);
   } finally {
     candidateRefreshInFlight = false;
   }
@@ -431,13 +470,19 @@ watch(() => route.params.caseId, () => {
   actionMessage.value = "";
   searchingBlockMessage.value = "";
   resetCandidateState();
+  routeRequestId += 1;
+  routePoints.value = [];
+  routeLoading.value = true;
+  routeError.value = "";
   void loadCase();
   void loadCandidates();
+  void loadRoutePoints();
 });
 
 onMounted(() => {
   void loadCase();
   void loadCandidates();
+  void loadRoutePoints();
   candidateRefreshTimer = window.setInterval(refreshCandidates, 5000);
 });
 onBeforeUnmount(() => {
@@ -445,6 +490,7 @@ onBeforeUnmount(() => {
   searchSetupRequestId += 1;
   actionRequestId += 1;
   candidateRequestId += 1;
+  routeRequestId += 1;
   if (candidateRefreshTimer) window.clearInterval(candidateRefreshTimer);
 });
 </script>
@@ -569,9 +615,50 @@ onBeforeUnmount(() => {
 
       <article class="content-panel">
         <h2>추정 동선</h2>
-        <div v-if="routePoints.length === 0" class="state-view">
+        <div v-if="routeLoading" class="state-view" role="status">
+          <strong>확정 동선을 불러오는 중입니다.</strong>
+        </div>
+        <div v-else-if="routeError" class="state-view error">
+          <strong>{{ routeError }}</strong>
+          <button type="button" @click="loadRoutePoints()">다시 시도</button>
+        </div>
+        <div v-else-if="routePoints.length === 0" class="state-view">
           <strong>확인된 동선이 없습니다.</strong>
-          <p>후보가 확정되고 동선 데이터가 생성되면 여기에 표시됩니다.</p>
+          <p>후보를 확정하면 해당 카메라 위치가 여기에 표시됩니다.</p>
+        </div>
+        <div v-else class="case-route-content">
+          <div class="case-route-summary">
+            <div>
+              <strong>확정 후보 {{ routePoints.length }}건</strong>
+              <p>확정된 후보를 탐지 시각 순으로 표시합니다.</p>
+            </div>
+            <button
+              type="button"
+              class="ghost-button"
+              @click="router.push({ path: '/admin/routes', query: { caseId: item.id } })"
+            >지도에서 보기</button>
+          </div>
+          <div
+            v-for="(point, index) in routePoints"
+            :key="point.candidateId"
+            class="timeline-item"
+          >
+            <div class="timeline-meta">
+              <strong>{{ index + 1 }}</strong>
+              <time>{{ detectedTime(point) }}</time>
+            </div>
+            <h3>{{ point.cameraName || point.cameraCode }}</h3>
+            <p>{{ point.address || "카메라 주소 미등록" }}</p>
+            <p class="route-point-meta">
+              {{ candidateSourceLabel(point.sourceType) }} · 유사도 {{ similarityPercent(point.bestSimilarity) }}%
+              · {{ point.latitude }}, {{ point.longitude }}
+            </p>
+            <button
+              type="button"
+              class="ghost-button"
+              @click="router.push(`/admin/candidates/${point.candidateId}`)"
+            >후보 근거 보기</button>
+          </div>
         </div>
       </article>
     </div>
@@ -738,4 +825,16 @@ onBeforeUnmount(() => {
   color: #9b382f;
   font-weight: 700;
 }
+
+.case-route-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.case-route-summary > div { display: grid; gap: 4px; }
+.case-route-summary p { margin: 0; color: #64748b; font-size: 12px; }
+.case-route-summary .ghost-button { flex: 0 0 auto; }
 </style>
