@@ -170,9 +170,9 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .cases-filter-bar .reset-button { justify-self: stretch; }
 .candidate-filter-bar { grid-template-columns: minmax(220px, 1.35fr) repeat(2, minmax(180px, 1fr)); justify-content: stretch; }
 .candidate-heading-actions { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-.candidate-secondary-filters { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(220px, .9fr) minmax(0, 1.2fr); grid-template-areas: "date source display"; gap: 28px; align-items: center; margin-bottom: 14px; }
+.candidate-secondary-filters { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(220px, .9fr) minmax(0, 1.2fr); grid-template-areas: "date source display"; gap: 28px; align-items: start; margin-bottom: 14px; }
 .candidate-source-filter, .candidate-display-settings { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 10px; min-width: 0; margin-bottom: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
-.candidate-source-filter { grid-area: source; }
+.candidate-source-filter { grid-area: source; padding-top: 24px; }
 .candidate-display-settings { grid-area: display; }
 .candidate-filter-section-heading { display: grid; gap: 3px; min-width: 0; }
 .candidate-filter-section-heading strong { color: #334155; font-size: 13px; }
@@ -722,6 +722,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   .profile-block { grid-template-columns: 250px minmax(300px, 1fr); }
   .info-grid { grid-template-columns: 1fr; }
   .candidate-secondary-filters { grid-template-columns: minmax(240px, .9fr) minmax(340px, 1.1fr); grid-template-areas: "date date" "source display"; }
+  .candidate-source-filter { padding-top: 0; }
 }
 
 @media (min-width: 1101px) and (max-width: 1400px) {
@@ -741,6 +742,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   .summary-grid, .filter-bar, .cases-filter-bar, .candidate-filter-bar, .recording-filter-main, .recording-filter-time, .settings-shortcut-grid { grid-template-columns: 1fr; }
   .candidate-grid { grid-template-columns: 1fr; }
   .candidate-secondary-filters { grid-template-columns: 1fr; grid-template-areas: "date" "source" "display"; }
+  .candidate-source-filter { padding-top: 0; }
   .candidate-date-filter { display: grid; grid-template-columns: 1fr; }
   .candidate-date-filter input { min-width: 0; }
   .candidate-heading-actions { justify-content: flex-start; }
