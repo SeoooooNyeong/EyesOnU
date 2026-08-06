@@ -53,6 +53,7 @@ const caseItem = {
   id: 1,
   caseNumber: "EFU-001",
   missingName: "홍길동",
+  status: "SEARCHING",
   reportedAt: "2026-08-05T01:00:00Z"
 };
 
@@ -183,6 +184,10 @@ describe("RecordingSearchView", () => {
 
     expect(listAdminRecordingsMock).not.toHaveBeenCalled();
     expect(root.querySelector(".search-button").disabled).toBe(true);
+    expect(root.querySelector(".analysis-range-start").value).toBe("0");
+    expect(root.querySelector(".analysis-range-end").value).toBe("60");
+    expect(root.querySelector(".analysis-range-end").max).toBe("60");
+    expect(root.querySelector(".analysis-range-start").step).toBe("1");
 
     await selectCamera();
 
@@ -206,6 +211,133 @@ describe("RecordingSearchView", () => {
     });
     expect(root.textContent).toContain("생성 1건 · 이미 요청됨 0건 · 실패 0건");
     expect(root.textContent).toContain("JOB-520");
+  });
+
+  it("previews range movement without loading and reloads once the handle is released", async () => {
+    mount();
+    await settle();
+    await selectCaseAndCamera();
+    listAdminRecordingsMock.mockClear();
+    listAdminRecordingsMock.mockResolvedValue(page([recording({ id: 30 })]));
+
+    const startHandle = root.querySelector(".analysis-range-start");
+    startHandle.value = "10";
+    startHandle.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+
+    expect(listAdminRecordingsMock).not.toHaveBeenCalled();
+    expect(root.textContent).toContain("핸들을 놓으면 선택한 분석 기간의 녹화본을 조회합니다.");
+    expect(root.querySelector(".search-button").disabled).toBe(true);
+
+    startHandle.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+
+    expect(listAdminRecordingsMock).toHaveBeenCalledTimes(1);
+    expect(listAdminRecordingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      startFrom: "2026-08-04T10:10:00.000Z",
+      startTo: condition.searchEnd
+    }));
+    expect(root.textContent).toContain("분석 대상 녹화본 1개");
+
+    root.querySelector(".search-button").click();
+    await settle();
+    expect(createRecordingAnalysisJobMock).toHaveBeenCalledWith("1", {
+      conditionId: 10,
+      recordingId: 30
+    });
+  });
+
+  it("maps the final partial minute to the condition's exact end time", async () => {
+    const partialMinuteCondition = {
+      ...condition,
+      searchEnd: "2026-08-04T11:00:30Z"
+    };
+    listSearchConditionsMock.mockResolvedValue([partialMinuteCondition]);
+    mount();
+    await settle();
+    await selectCaseAndCamera();
+
+    const endHandle = root.querySelector(".analysis-range-end");
+    expect(endHandle.max).toBe("61");
+    expect(endHandle.value).toBe("61");
+    expect(listAdminRecordingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      startTo: partialMinuteCondition.searchEnd
+    }));
+
+    listAdminRecordingsMock.mockClear();
+    endHandle.value = "60";
+    endHandle.dispatchEvent(new Event("input", { bubbles: true }));
+    endHandle.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+
+    expect(listAdminRecordingsMock).toHaveBeenCalledWith(expect.objectContaining({
+      startTo: "2026-08-04T11:00:00.000Z"
+    }));
+  });
+
+  it("keeps the range handles at least one minute step apart", async () => {
+    mount();
+    await settle();
+    await selectCase();
+
+    const startHandle = root.querySelector(".analysis-range-start");
+    const endHandle = root.querySelector(".analysis-range-end");
+    startHandle.value = "60";
+    startHandle.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(startHandle.value).toBe("59");
+
+    endHandle.value = "0";
+    endHandle.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(endHandle.value).toBe("60");
+  });
+
+  it("preserves the selected range across camera changes and resets it for a new condition", async () => {
+    const nextCondition = {
+      ...condition,
+      id: 11,
+      searchStart: "2026-08-04T12:00:00Z",
+      searchEnd: "2026-08-04T13:30:00Z"
+    };
+    listSearchConditionsMock.mockResolvedValue([condition, nextCondition]);
+    listCaseCamerasMock.mockResolvedValue([
+      camera(),
+      camera({ id: 31, cameraId: 5, cameraCode: "camera-05", cameraName: "후문 카메라" })
+    ]);
+    listAdminRecordingsMock.mockImplementation(({ cameraId }) => Promise.resolve(page([
+      recording({ camera: { ...recording().camera, id: cameraId } })
+    ])));
+    mount();
+    await settle();
+    await selectCaseAndCamera();
+
+    const startHandle = root.querySelector(".analysis-range-start");
+    startHandle.value = "10";
+    startHandle.dispatchEvent(new Event("input", { bubbles: true }));
+    startHandle.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+
+    listAdminRecordingsMock.mockClear();
+    await selectCamera(5);
+    expect(listAdminRecordingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      cameraId: 5,
+      startFrom: "2026-08-04T10:10:00.000Z"
+    }));
+    expect(root.querySelector(".analysis-range-start").value).toBe("10");
+
+    const conditionSelect = root.querySelector(".recording-filter-main select");
+    conditionSelect.value = "11";
+    conditionSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+
+    expect(root.querySelector(".analysis-range-start").value).toBe("0");
+    expect(root.querySelector(".analysis-range-end").value).toBe("90");
+    expect(listAdminRecordingsMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      cameraId: 5,
+      startFrom: nextCondition.searchStart,
+      startTo: nextCondition.searchEnd
+    }));
   });
 
   it("loads every recording page, removes duplicates, and submits in chronological order", async () => {
@@ -343,13 +475,54 @@ describe("RecordingSearchView", () => {
     expect(root.querySelector(".search-button").disabled).toBe(true);
   });
 
+  it("keeps a non-searching case visible but locks recording analysis inputs", async () => {
+    listCasesMock.mockResolvedValue(page([{ ...caseItem, status: "RECEIVED" }]));
+    mount();
+    await settle();
+    await selectCase();
+
+    expect(root.querySelector(".case-picker-trigger").textContent).toContain(caseItem.caseNumber);
+    expect(root.textContent).toContain("탐색 중인 사건만 녹화 분석 작업을 요청하거나 재시도할 수 있습니다.");
+    expect(root.querySelector(".recording-filter-main select").disabled).toBe(true);
+    expect(root.querySelector(".recording-filter-time select").disabled).toBe(true);
+    expect(root.querySelector(".search-button").disabled).toBe(true);
+    expect(listSearchConditionsMock).not.toHaveBeenCalled();
+    expect(listCaseCamerasMock).not.toHaveBeenCalled();
+    expect(listAdminRecordingsMock).not.toHaveBeenCalled();
+
+    root.querySelector(".search-button").click();
+    await settle();
+    expect(createRecordingAnalysisJobMock).not.toHaveBeenCalled();
+  });
+
+  it("shows non-searching case jobs but disables failed job retries", async () => {
+    listCasesMock.mockResolvedValue(page([{ ...caseItem, status: "FIELD_SEARCH" }]));
+    listRecordingAnalysisJobsForDashboardMock.mockResolvedValue([
+      job({ jobId: 501, status: "FAILED" }),
+      job({ jobId: 502, status: "QUEUED" })
+    ]);
+    mount();
+    await settle();
+
+    const retryButton = root.querySelector(".reset-button");
+    expect(root.textContent).toContain("JOB-501");
+    expect(root.textContent).toContain("JOB-502");
+    expect(retryButton.disabled).toBe(true);
+    expect(retryButton.title).toBe("탐색 중인 사건만 녹화 분석 작업을 요청하거나 재시도할 수 있습니다.");
+    expect(root.querySelector(".ghost-button").disabled).toBe(false);
+
+    retryButton.click();
+    await settle();
+    expect(retryRecordingAnalysisJobMock).not.toHaveBeenCalled();
+  });
+
   it("shows an empty state when the selected camera has no overlapping recording", async () => {
     listAdminRecordingsMock.mockResolvedValue(page([]));
     mount();
     await settle();
     await selectCaseAndCamera();
 
-    expect(root.textContent).toContain("선택한 카메라에 탐색 기간과 겹치는 녹화본이 없습니다.");
+    expect(root.textContent).toContain("선택한 카메라에 분석 기간과 겹치는 녹화본이 없습니다.");
     expect(root.querySelector(".search-button").disabled).toBe(true);
   });
 
@@ -436,7 +609,7 @@ describe("RecordingSearchView", () => {
     await selectCaseAndCamera();
 
     expect(createRecordingAnalysisJobMock).not.toHaveBeenCalled();
-    expect(root.textContent).toContain("선택한 카메라에 탐색 기간과 겹치는 녹화본이 없습니다.");
+    expect(root.textContent).toContain("선택한 카메라에 분석 기간과 겹치는 녹화본이 없습니다.");
     expect(root.querySelector(".search-button").disabled).toBe(true);
   });
 });
