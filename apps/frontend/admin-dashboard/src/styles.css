@@ -192,6 +192,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .resolved-candidates-toggle-row { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-height: 38px; margin: 0; color: #52677d; font-size: 12px; font-weight: 800; white-space: nowrap; }
 .resolved-candidates-toggle-label strong { color: #2f5d7a; }
 .resolved-candidates-toggle { position: relative; display: inline-flex; align-items: center; width: 46px; height: 26px; padding: 0; border: 0; border-radius: 999px; background: #dbe6eb; cursor: pointer; transition: background .18s ease, box-shadow .18s ease; }
+.resolved-candidates-toggle:disabled { opacity: .6; cursor: not-allowed; }
 .resolved-candidates-toggle:hover { background: #cbdbe3; }
 .resolved-candidates-toggle[aria-checked="true"] { background: oklch(0.6 0.15 220); }
 .resolved-candidates-toggle[aria-checked="true"]:hover { background: oklch(0.55 0.15 220); }

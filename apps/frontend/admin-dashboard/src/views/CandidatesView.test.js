@@ -72,6 +72,16 @@ describe("CandidatesView", () => {
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(2);
   });
 
+  it("keeps the resolved-candidate toggle in place when there are no resolved candidates", async () => {
+    candidateApi.fetchAdminCandidates.mockResolvedValueOnce({ rows: [rows[0]], meta: { totalPages: 1, totalElements: 1 } });
+    const { root } = await mountView();
+
+    const toggle = root.querySelector(".resolved-candidates-toggle");
+    expect(toggle).not.toBeNull();
+    expect(toggle.disabled).toBe(true);
+    expect(root.querySelector(".candidate-list-toolbar")).not.toBeNull();
+  });
+
   it("uses the existing green and blue tones for source filters", async () => {
     const { root } = await mountView();
     const realtimeButton = root.querySelector(".candidate-source-option.green");
