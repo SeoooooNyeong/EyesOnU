@@ -63,6 +63,10 @@ class AdminCandidateQueryServiceTests {
 
         assertEquals("https://storage.example/frame", result.frameUrl());
         assertEquals("https://storage.example/crop", result.cropUrl());
+        assertEquals("https://storage.example/missing-photo", result.missingPhotoUrl());
+        assertEquals("https://storage.example/recording", result.recordingUrl());
+        assertEquals("https://storage.example/clip", result.clipUrl());
+        assertEquals("READY", result.clipStatus());
         assertEquals("https://storage.example/detection-crop", result.detections().getFirst().cropUrl());
         verify(signer, never()).createGetUrl("frames/detection-frame.jpg");
         assertFalse(result.toString().contains("frames/frame.jpg"));
@@ -74,6 +78,9 @@ class AdminCandidateQueryServiceTests {
     private void stubSignedUrls() {
         when(signer.createGetUrl("frames/frame.jpg")).thenReturn("https://storage.example/frame");
         when(signer.createGetUrl("crops/crop.jpg")).thenReturn("https://storage.example/crop");
+        when(signer.createGetUrl("cases/1/missing.jpg")).thenReturn("https://storage.example/missing-photo");
+        when(signer.createGetUrl("recordings/1.mp4")).thenReturn("https://storage.example/recording");
+        when(signer.createGetUrl("clips/1.mp4")).thenReturn("https://storage.example/clip");
         when(signer.createGetUrl("crops/detection-crop.jpg"))
                 .thenReturn("https://storage.example/detection-crop");
     }
@@ -84,6 +91,10 @@ class AdminCandidateQueryServiceTests {
         row.setSourceType(CandidateSourceType.REALTIME);
         row.setFrameObjectKey("frames/frame.jpg");
         row.setCropObjectKey("crops/crop.jpg");
+        row.setMissingPhotoObjectKey("cases/1/missing.jpg");
+        row.setRecordingObjectKey("recordings/1.mp4");
+        row.setClipObjectKey("clips/1.mp4");
+        row.setClipStatus("READY");
         return row;
     }
 }

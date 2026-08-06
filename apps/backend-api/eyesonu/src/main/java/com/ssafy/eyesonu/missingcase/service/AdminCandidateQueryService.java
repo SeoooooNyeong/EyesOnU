@@ -53,6 +53,9 @@ public class AdminCandidateQueryService {
         List<AdminCandidateDetectionResponse> detections = mapper.findDetections(candidateId).stream()
                 .map(this::toDetectionResponse).toList();
         return AdminCandidateDetailResponse.from(candidate,
+                sign(candidate.getMissingPhotoObjectKey()),
+                sign(candidate.getRecordingObjectKey()),
+                sign(candidate.getClipObjectKey()),
                 sign(candidate.getFrameObjectKey()), sign(candidate.getCropObjectKey()), detections);
     }
 
