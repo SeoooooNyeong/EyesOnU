@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { LayoutGrid, Table2 } from "lucide-vue-next";
+import { ChevronDown, LayoutGrid, Table2 } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 import { fetchAdminCandidates } from "../api/candidateApi";
 import { listCameras } from "../api/cameraApi";
@@ -264,8 +264,10 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <button v-if="resolvedRows.length" class="resolved-candidates-toggle" type="button" @click="resolvedCollapsed = !resolvedCollapsed">
-      확정·제외 후보 {{ resolvedRows.length }}건 · {{ shouldCollapseResolved ? "펼치기" : "접기" }}
+    <button v-if="resolvedRows.length" class="resolved-candidates-toggle" type="button" :aria-expanded="!shouldCollapseResolved" @click="resolvedCollapsed = !resolvedCollapsed">
+      <span class="resolved-candidates-toggle-label">확정·제외 후보 <strong>{{ resolvedRows.length }}건</strong></span>
+      <span class="resolved-candidates-toggle-action">{{ shouldCollapseResolved ? "펼치기" : "접기" }}</span>
+      <ChevronDown :size="15" :class="['resolved-candidates-toggle-icon', { expanded: !shouldCollapseResolved }]" aria-hidden="true" />
     </button>
 
     <p v-if="loading" class="empty-state">후보 목록을 불러오는 중입니다.</p>
