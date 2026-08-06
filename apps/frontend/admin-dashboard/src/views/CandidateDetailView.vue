@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { fetchAdminCandidate, fetchAdminCandidates, reviewAdminCandidate } from "../api/candidateApi";
 import {
@@ -25,6 +25,7 @@ const videoLoadError = ref(false);
 const clipPlaying = ref(false);
 const reviewForm = reactive({ reviewStatus: "CONFIRMED", reviewComment: "" });
 const MIN_CONFIRMATION_EVIDENCE_LENGTH = 10;
+let candidateLoadId = 0;
 
 const syncReviewForm = (candidate) => {
   reviewForm.reviewStatus = candidate.reviewStatus || "CONFIRMED";
@@ -101,7 +102,7 @@ const handleVideoEnded = () => {
   clipPlaying.value = false;
 };
 
-const loadNextPendingCandidate = async () => {
+const loadNextPendingCandidate = async (requestId = candidateLoadId) => {
   nextPendingLoading.value = true;
   try {
     const result = await fetchAdminCandidates({
@@ -114,15 +115,16 @@ const loadNextPendingCandidate = async () => {
       size: 100,
       sort: "pendingFirst"
     });
+    if (requestId !== candidateLoadId) return;
     const pendingCandidates = result?.rows || [];
     const currentIndex = pendingCandidates.findIndex((candidate) => String(candidate.id) === String(route.params.candidateId));
     nextPendingCandidate.value = currentIndex >= 0
       ? pendingCandidates[currentIndex + 1] || null
       : pendingCandidates[0] || null;
   } catch {
-    nextPendingCandidate.value = null;
+    if (requestId === candidateLoadId) nextPendingCandidate.value = null;
   } finally {
-    nextPendingLoading.value = false;
+    if (requestId === candidateLoadId) nextPendingLoading.value = false;
   }
 };
 
@@ -165,17 +167,30 @@ const submitReview = async () => {
   }
 };
 
-onMounted(async () => {
+const loadCandidate = async (candidateId) => {
+  const requestId = ++candidateLoadId;
+  loading.value = true;
+  error.value = "";
+  reviewError.value = "";
+  item.value = null;
+  nextPendingCandidate.value = null;
+  nextPendingLoading.value = false;
+  resetVideoState();
   try {
-    item.value = await fetchAdminCandidate(route.params.candidateId);
+    const candidate = await fetchAdminCandidate(candidateId);
+    if (requestId !== candidateLoadId) return;
+    item.value = candidate;
     syncReviewForm(item.value);
-    await loadNextPendingCandidate();
+    await loadNextPendingCandidate(requestId);
   } catch (exception) {
+    if (requestId !== candidateLoadId) return;
     error.value = exception.response?.data?.message || "후보 상세를 불러오지 못했습니다.";
   } finally {
-    loading.value = false;
+    if (requestId === candidateLoadId) loading.value = false;
   }
-});
+};
+
+watch(() => route.params.candidateId, loadCandidate, { immediate: true });
 </script>
 
 <template>
