@@ -35,7 +35,7 @@ const caseDropdownOpen = ref(false);
 const loading = ref(true);
 const error = ref("");
 const page = ref(1);
-const pageSize = ref(20);
+const PAGE_SIZE = 20;
 const totalPages = ref(1);
 const totalCount = ref(0);
 const resolvedCollapsed = ref(true);
@@ -53,7 +53,7 @@ const toIso = (value) => {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 };
 
-const listParams = ({ pageNumber = page.value - 1, size = pageSize.value, reviewStatus } = {}) => ({
+const listParams = ({ pageNumber = page.value - 1, size = PAGE_SIZE, reviewStatus } = {}) => ({
   caseId: filters.caseId || undefined,
   sourceType: filters.source === "all" ? undefined : filters.source,
   reviewStatus: reviewStatus || (filters.review === "all" ? undefined : filters.review.toUpperCase()),
@@ -134,7 +134,7 @@ const selectCase = (caseItem) => {
   caseDropdownOpen.value = false;
 };
 
-watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.detectedFrom, filters.detectedTo, filters.sort, pageSize.value], () => {
+watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.detectedFrom, filters.detectedTo, filters.sort], () => {
   if (page.value !== 1) {
     page.value = 1;
     return;
@@ -219,9 +219,6 @@ onUnmounted(() => {
               <option value="bestSimilarity,desc">유사도 높은 순</option>
               <option value="lastDetectedAt,desc">탐지 최신순</option>
             </select>
-          </label>
-          <label>한 페이지
-            <select v-model.number="pageSize"><option :value="20">20건</option><option :value="50">50건</option><option :value="100">100건</option></select>
           </label>
         </div>
       </div>
