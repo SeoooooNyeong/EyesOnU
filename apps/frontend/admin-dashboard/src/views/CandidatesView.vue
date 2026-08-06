@@ -256,17 +256,17 @@ onUnmounted(() => {
     <template v-else>
       <div v-if="filters.view === 'card'" class="candidate-grid">
         <button v-for="item in displayRows" :key="item.id" :class="['candidate-card', `review-${reviewStatusTone(item.reviewStatus)}`]" @click="openCandidate(item)">
-          <span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
+          <div class="candidate-card-top-row">
+            <span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
+            <span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span>
+          </div>
           <img v-if="item.cropUrl" :src="item.cropUrl" alt="후보 캡처" />
           <span v-else class="image-placeholder large">이미지 없음</span>
           <div class="candidate-card-content">
             <strong>{{ item.caseNumber }}</strong>
             <p class="candidate-detection-meta">{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
             <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b>
-            <div class="candidate-card-bottom-row">
-              <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }} · track {{ item.trackId }}</p>
-              <span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span>
-            </div>
+            <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }} · track {{ item.trackId }}</p>
           </div>
         </button>
       </div>
