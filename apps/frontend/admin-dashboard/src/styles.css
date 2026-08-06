@@ -295,6 +295,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   text-align: left;
   display: grid;
   align-content: start;
+  justify-items: center;
   gap: 5px;
 }
 .candidate-card > img, .candidate-card > .image-placeholder.large {
@@ -308,7 +309,10 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   object-fit: cover;
   object-position: center top;
 }
+.candidate-card > strong, .candidate-card p, .candidate-card > .similarity-score { width: 100%; text-align: center; }
 .candidate-card > strong, .candidate-card p { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-card > .status-badge { justify-self: center; }
+.candidate-card > .similarity-score { display: block; }
 .candidate-card > strong { min-height: 18px; font-size: 13px; line-height: 1.35; }
 .candidate-card p { min-height: 18px; margin: 0; color: #6b7280; font-size: 12px; line-height: 1.35; }
 .candidate-card .candidate-location { color: #475569; }
