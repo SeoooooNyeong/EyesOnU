@@ -276,11 +276,11 @@ onUnmounted(() => {
           <span v-else class="image-placeholder large">이미지 없음</span>
           <div class="candidate-card-content">
             <strong>{{ item.caseNumber }}</strong>
-            <span :class="['status-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
+            <span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
             <p>{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
             <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }} · track {{ item.trackId }}</p>
             <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b>
-            <span :class="['status-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span>
+            <span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span>
           </div>
         </button>
       </div>
@@ -290,12 +290,12 @@ onUnmounted(() => {
           <tbody>
             <tr v-for="item in displayRows" :key="item.id">
               <td>{{ item.caseNumber }}</td>
-              <td><span :class="['status-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span></td>
+              <td><span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span></td>
               <td>{{ item.cameraCode }}</td>
               <td>{{ item.cameraName || "-" }}</td>
               <td>{{ formatCandidateDate(item.lastDetectedAt) }}</td>
               <td :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</td>
-              <td><span :class="['status-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span></td>
+              <td><span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span></td>
               <td><button class="ghost-button" @click="openCandidate(item)">상세 보기</button></td>
             </tr>
           </tbody>
