@@ -230,7 +230,7 @@ onBeforeUnmount(() => {
       <button type="button" @click="start">다시 연결</button>
     </div>
 
-    <span class="live-badge"><i /> LIVE</span>
+    <span v-if="state === 'ready'" class="live-badge"><i /> LIVE</span>
 
     <div class="stream-controls">
       <button v-if="protocol !== 'HLS'" type="button" :aria-label="isPlaying ? '일시정지' : '재생'" @click="togglePlay">

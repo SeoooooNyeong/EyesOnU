@@ -118,6 +118,24 @@ describe("CamerasView", () => {
     });
   });
 
+  it("keeps the camera management status labels and tones", async () => {
+    listCamerasMock.mockResolvedValue(result([
+      camera({ id: 1, status: "online" }),
+      camera({ id: 2, status: "offline" }),
+      camera({ id: 3, status: "error" })
+    ]));
+    mount();
+    await settle();
+
+    const badges = [...root.querySelectorAll(".status-badge")];
+    expect(badges.map((badge) => badge.textContent.trim())).toEqual(["정상", "연결 없음", "오류"]);
+    expect(badges.map((badge) => [...badge.classList])).toEqual([
+      ["status-badge", "green"],
+      ["status-badge", "red"],
+      ["status-badge", "amber"]
+    ]);
+  });
+
   it("ignores an older response that completes after a newer filter request", async () => {
     const oldRequest = deferred();
     listCamerasMock
