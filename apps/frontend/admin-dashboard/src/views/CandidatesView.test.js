@@ -83,6 +83,20 @@ describe("CandidatesView", () => {
     expect(router.currentRoute.value.path).toBe("/admin/candidates/1");
   });
 
+  it("uses the existing green and blue tones for source filters", async () => {
+    const { root } = await mountView();
+    const realtimeButton = root.querySelector(".candidate-source-option.green");
+    const recordingButton = root.querySelector(".candidate-source-option.blue");
+
+    expect(realtimeButton).not.toBeNull();
+    expect(recordingButton).not.toBeNull();
+    realtimeButton.click();
+    await flushUi();
+
+    expect(realtimeButton.classList.contains("active")).toBe(true);
+    expect(candidateApi.fetchAdminCandidates).toHaveBeenLastCalledWith(expect.objectContaining({ sourceType: "REALTIME" }));
+  });
+
   it("uses the selected camera, date range, and sort in the request", async () => {
     const { root } = await mountView();
     const selects = root.querySelectorAll("select");
