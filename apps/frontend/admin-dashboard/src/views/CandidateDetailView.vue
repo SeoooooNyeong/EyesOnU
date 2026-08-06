@@ -22,6 +22,7 @@ const videoRef = ref(null);
 const videoLoadError = ref(false);
 const clipPlaying = ref(false);
 const reviewForm = reactive({ reviewStatus: "CONFIRMED", reviewComment: "" });
+const MIN_CONFIRMATION_EVIDENCE_LENGTH = 10;
 
 const syncReviewForm = (candidate) => {
   reviewForm.reviewStatus = candidate.reviewStatus || "CONFIRMED";
@@ -29,6 +30,8 @@ const syncReviewForm = (candidate) => {
 };
 
 const similarityToneClass = computed(() => similarityTone(item.value?.bestSimilarity));
+const confirmationEvidenceTooShort = computed(() => reviewForm.reviewStatus === "CONFIRMED"
+  && (reviewForm.reviewComment || "").trim().length < MIN_CONFIRMATION_EVIDENCE_LENGTH);
 const videoUrl = computed(() => item.value?.clipUrl || item.value?.recordingUrl || "");
 const hasClip = computed(() => Boolean(item.value?.clipUrl));
 const hasRecordingFallback = computed(() => !hasClip.value && Boolean(item.value?.recordingUrl));
@@ -98,6 +101,10 @@ const handleVideoEnded = () => {
 
 const submitReview = async () => {
   if (!item.value) return;
+  if (confirmationEvidenceTooShort.value) {
+    reviewError.value = "대상 확인 판정은 10자 이상의 판정 근거가 필요합니다.";
+    return;
+  }
   reviewing.value = true;
   reviewError.value = "";
   try {
@@ -290,8 +297,9 @@ onMounted(async () => {
         <label>판정 근거
           <textarea v-model="reviewForm.reviewComment" maxlength="2000" rows="5" placeholder="사진·영상·위치·시각을 확인한 근거를 입력하세요." />
         </label>
+        <p v-if="confirmationEvidenceTooShort" class="form-help-error">대상 확인 시 판정 근거를 10자 이상 입력해 주세요.</p>
         <p v-if="reviewError" class="error-message">{{ reviewError }}</p>
-        <button class="primary-button" type="submit" :disabled="reviewing">{{ reviewing ? "저장 중..." : "판정 저장" }}</button>
+        <button class="primary-button" type="submit" :disabled="reviewing || confirmationEvidenceTooShort">{{ reviewing ? "저장 중..." : "판정 저장" }}</button>
       </form>
 
       <button class="ghost-button candidate-back-button" type="button" @click="router.push('/admin/candidates')">목록으로</button>
@@ -331,6 +339,7 @@ onMounted(async () => {
 .candidate-info-list span { display: grid; gap: 4px; min-width: 0; }
 .candidate-info-list strong { color: #253342; font-size: 13px; overflow-wrap: anywhere; }
 .review-form-help { margin: -6px 0 4px; color: #64748b; font-size: 12px; line-height: 1.5; }
+.form-help-error { margin: -6px 0 0; color: #b42318; font-size: 12px; line-height: 1.5; }
 .candidate-review-form { display: grid; gap: 12px; }
 .candidate-review-form label { display: grid; gap: 6px; color: #64748b; font-size: 12px; font-weight: 700; }
 .candidate-review-form textarea { min-height: 110px; resize: vertical; }

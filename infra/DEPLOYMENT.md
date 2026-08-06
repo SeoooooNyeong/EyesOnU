@@ -116,7 +116,9 @@ sh infra/scripts/bootstrap-certificates.sh \
   dev.example.com \
   admin-dev.example.com \
   storage.example.com \
-  storage-dev.example.com
+  storage-dev.example.com \
+  console.example.com \
+  console-dev.example.com
 ```
 
 첫 번째 도메인이 인증서 디렉터리 이름이 된다. 따라서 Nginx 설정의 다음 경로와 일치해야 한다.
@@ -215,7 +217,7 @@ Jenkins 이미지 내부의 고정된 `docker` 그룹만 사용하는 것보다 
 - `infra/.env.deploy`와 인증서 개인키는 Git에 올리지 않는다.
 - AWS 보안 그룹에는 `80`, `443`, 제한된 관리자용 `22`만 허용한다.
 - MySQL, RabbitMQ, MinIO, Docker API 포트는 외부에 열지 않는다.
-- MinIO API는 `storage` 전용 HTTPS 도메인을 통해서만 프록시하며 Console 포트는 공개하지 않는다.
+- MinIO API는 `storage` 전용 HTTPS 도메인을 통해 프록시하고, Console은 `console` 전용 HTTPS 도메인으로 프록시한다. Console은 MinIO root 자격증명으로 로그인한다.
 - MinIO 초기화 시 버킷의 익명 정책을 `private`으로 재설정한다. 외부 객체 조회와 미디어 서버 녹화 PUT은 유효한 presigned URL로만 허용한다.
 - dev·master storage Nginx는 HTTPS 요청 본문을 100 MiB로 제한한다. HTTP redirect와 HTTPS storage 가상 호스트 모두 access log를 비활성화하고, 전체 presigned 요청이 남지 않도록 error log도 `/dev/null`로 보낸다. storage 요청 단위 관측성을 의도적으로 포기하는 대신 Nginx 상태, 백엔드와 MinIO 컨테이너 로그·메트릭으로 장애를 확인한다.
 - presigned query string은 애플리케이션·프록시·장치 로그에도 기록하지 않는다.
