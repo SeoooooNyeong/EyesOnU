@@ -53,6 +53,9 @@ public class AdminCandidateQueryService {
         List<AdminCandidateDetectionResponse> detections = mapper.findDetections(candidateId).stream()
                 .map(this::toDetectionResponse).toList();
         return AdminCandidateDetailResponse.from(candidate,
+                sign(candidate.getMissingPhotoObjectKey()),
+                sign(candidate.getRecordingObjectKey()),
+                sign(candidate.getClipObjectKey()),
                 sign(candidate.getFrameObjectKey()), sign(candidate.getCropObjectKey()), detections);
     }
 
@@ -65,7 +68,7 @@ public class AdminCandidateQueryService {
     }
 
     private String sign(String objectKey) {
-        return objectKey == null ? null : urlSigner.createGetUrl(objectKey);
+        return objectKey == null || objectKey.isBlank() ? null : urlSigner.createGetUrl(objectKey);
     }
 
     private String normalizeStatus(String value) {

@@ -8,12 +8,23 @@
         <result property="caseId" column="case_id"/>
         <result property="caseNumber" column="case_number"/>
         <result property="missingName" column="missing_name"/>
+        <result property="missingPhotoObjectKey" column="missing_photo_object_key"/>
         <result property="cameraId" column="camera_id"/>
         <result property="cameraCode" column="camera_code"/>
         <result property="cameraName" column="camera_name"/>
+        <result property="cameraLatitude" column="camera_latitude"/>
+        <result property="cameraLongitude" column="camera_longitude"/>
+        <result property="cameraAddress" column="camera_address"/>
         <result property="sourceType" column="source_type"/>
         <result property="analysisJobId" column="analysis_job_id"/>
         <result property="recordingId" column="recording_id"/>
+        <result property="recordingStartTime" column="recording_start_time"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="recordingEndTime" column="recording_end_time"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="recordingObjectKey" column="recording_object_key"/>
+        <result property="clipObjectKey" column="clip_object_key"/>
+        <result property="clipStatus" column="clip_status"/>
         <result property="dedupeScope" column="dedupe_scope"/>
         <result property="trackId" column="track_id"/>
         <result property="firstDetectedAt" column="first_detected_at"/>
@@ -51,10 +62,28 @@
             <if test="detectedTo != null">AND c.first_detected_at &lt; #{detectedTo}</if>
         </where>
     </sql>
-    <sql id="candidateSelect">
+    <sql id="candidateListSelect">
         SELECT c.id, c.case_id, cs.case_number, cs.missing_name,
                c.camera_id, cam.camera_code, cam.camera_name, c.source_type,
                c.analysis_job_id, c.recording_id, c.dedupe_scope, c.track_id,
+               c.first_detected_at, c.last_detected_at, c.best_similarity, c.average_similarity,
+               c.detection_count, c.crop_object_key,
+               CAST(c.bounding_box AS CHAR) AS bounding_box, c.review_status, c.review_comment, c.version,
+               c.created_at, c.updated_at
+        FROM candidates c
+        INNER JOIN cases cs ON cs.id = c.case_id
+        INNER JOIN cameras cam ON cam.id = c.camera_id
+    </sql>
+    <sql id="candidateDetailSelect">
+        SELECT c.id, c.case_id, cs.case_number, cs.missing_name,
+               cs.photo_s3_key AS missing_photo_object_key,
+               c.camera_id, cam.camera_code, cam.camera_name,
+               cam.latitude AS camera_latitude, cam.longitude AS camera_longitude,
+               cam.address AS camera_address, c.source_type,
+               c.analysis_job_id, c.recording_id,
+               r.start_time AS recording_start_time, r.end_time AS recording_end_time,
+               r.s3_key AS recording_object_key, c.clip_s3_key AS clip_object_key,
+               c.clip_status, c.dedupe_scope, c.track_id,
                c.first_detected_at, c.last_detected_at, c.best_similarity, c.average_similarity,
                c.detection_count, c.frame_object_key, c.crop_object_key,
                CAST(c.bounding_box AS CHAR) AS bounding_box, c.review_status, c.review_comment, c.version,
@@ -62,13 +91,14 @@
         FROM candidates c
         INNER JOIN cases cs ON cs.id = c.case_id
         INNER JOIN cameras cam ON cam.id = c.camera_id
+        LEFT JOIN recordings r ON r.id = c.recording_id
     </sql>
     <select id="countCandidates" resultType="long">
         SELECT COUNT(*) FROM candidates c
         <include refid="filters"/>
     </select>
     <select id="findPage" resultMap="candidateMap">
-        <include refid="candidateSelect"/>
+        <include refid="candidateListSelect"/>
         <include refid="filters"/>
         ORDER BY
         CASE WHEN c.source_type = 'REALTIME' THEN 0 ELSE 1 END ASC,
@@ -82,10 +112,10 @@
         LIMIT #{limit} OFFSET #{offset}
     </select>
     <select id="findById" resultMap="candidateMap">
-        <include refid="candidateSelect"/> WHERE c.id = #{id}
+        <include refid="candidateDetailSelect"/> WHERE c.id = #{id}
     </select>
     <select id="findByIdForUpdate" resultMap="candidateMap">
-        <include refid="candidateSelect"/> WHERE c.id = #{id} FOR UPDATE
+        <include refid="candidateListSelect"/> WHERE c.id = #{id} FOR UPDATE
     </select>
     <update id="updateReview">
         UPDATE candidates

@@ -128,9 +128,9 @@ onUnmounted(() => {
         <select v-model="filters.review">
           <option value="all">전체</option>
           <option value="pending">미판정</option>
-          <option value="kept">보류</option>
-          <option value="confirmed">확정</option>
-          <option value="rejected">제외</option>
+          <option value="kept">후보 유지</option>
+          <option value="confirmed">대상 확인</option>
+          <option value="rejected">대상 아님</option>
         </select>
       </label>
       <label>페이지 크기

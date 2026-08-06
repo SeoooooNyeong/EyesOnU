@@ -1,4 +1,4 @@
-const REVIEW_STATUS = { PENDING: { label: "미판정", tone: "amber" }, KEPT: { label: "보류", tone: "blue" }, CONFIRMED: { label: "확정", tone: "green" }, REJECTED: { label: "제외", tone: "gray" } };
+const REVIEW_STATUS = { PENDING: { label: "미판정", tone: "amber" }, KEPT: { label: "후보 유지", tone: "blue" }, CONFIRMED: { label: "대상 확인", tone: "green" }, REJECTED: { label: "대상 아님", tone: "gray" } };
 export const reviewStatusLabel = (status) => REVIEW_STATUS[String(status || "").toUpperCase()]?.label || "알 수 없음";
 export const reviewStatusTone = (status) => REVIEW_STATUS[String(status || "").toUpperCase()]?.tone || "gray";
 export const formatCandidateDate = (value) => { if (!value) return "-"; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", hour12: false }).format(date); };

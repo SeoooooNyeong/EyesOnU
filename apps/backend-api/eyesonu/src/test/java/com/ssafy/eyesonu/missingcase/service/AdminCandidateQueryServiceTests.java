@@ -2,6 +2,7 @@ package com.ssafy.eyesonu.missingcase.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -48,6 +49,9 @@ class AdminCandidateQueryServiceTests {
         assertEquals("https://storage.example/crop", result.candidates().getFirst().cropUrl());
         assertEquals(CandidateSourceType.REALTIME, result.candidates().getFirst().sourceType());
         verify(signer, never()).createGetUrl("frames/frame.jpg");
+        verify(signer, never()).createGetUrl("cases/1/missing.jpg");
+        verify(signer, never()).createGetUrl("recordings/1.mp4");
+        verify(signer, never()).createGetUrl("clips/1.mp4");
     }
 
     @Test
@@ -63,6 +67,10 @@ class AdminCandidateQueryServiceTests {
 
         assertEquals("https://storage.example/frame", result.frameUrl());
         assertEquals("https://storage.example/crop", result.cropUrl());
+        assertEquals("https://storage.example/missing-photo", result.missingPhotoUrl());
+        assertEquals("https://storage.example/recording", result.recordingUrl());
+        assertEquals("https://storage.example/clip", result.clipUrl());
+        assertEquals("READY", result.clipStatus());
         assertEquals("https://storage.example/detection-crop", result.detections().getFirst().cropUrl());
         verify(signer, never()).createGetUrl("frames/detection-frame.jpg");
         assertFalse(result.toString().contains("frames/frame.jpg"));
@@ -71,9 +79,48 @@ class AdminCandidateQueryServiceTests {
         assertFalse(result.toString().contains("crops/detection-crop.jpg"));
     }
 
+    @Test
+    void doesNotSignBlankOptionalObjectKeys() {
+        AdminCandidateRow row = candidate();
+        row.setMissingPhotoObjectKey(" ");
+        row.setRecordingObjectKey("");
+        row.setClipObjectKey(null);
+        when(mapper.findById(1L)).thenReturn(row);
+        when(mapper.findDetections(1L)).thenReturn(List.of());
+
+        AdminCandidateDetailResponse result = service.findById(1L);
+
+        assertNull(result.missingPhotoUrl());
+        assertNull(result.recordingUrl());
+        assertNull(result.clipUrl());
+        verify(signer, never()).createGetUrl(" ");
+        verify(signer, never()).createGetUrl("");
+    }
+
+    @Test
+    void signsOriginalRecordingWhenClipIsNotReady() {
+        AdminCandidateRow row = candidate();
+        row.setClipObjectKey(null);
+        row.setClipStatus("PENDING");
+        when(mapper.findById(1L)).thenReturn(row);
+        when(mapper.findDetections(1L)).thenReturn(List.of());
+        stubSignedUrls();
+
+        AdminCandidateDetailResponse result = service.findById(1L);
+
+        assertEquals("https://storage.example/recording", result.recordingUrl());
+        assertNull(result.clipUrl());
+        assertEquals("PENDING", result.clipStatus());
+        verify(signer).createGetUrl("recordings/1.mp4");
+        verify(signer, never()).createGetUrl("clips/1.mp4");
+    }
+
     private void stubSignedUrls() {
         when(signer.createGetUrl("frames/frame.jpg")).thenReturn("https://storage.example/frame");
         when(signer.createGetUrl("crops/crop.jpg")).thenReturn("https://storage.example/crop");
+        when(signer.createGetUrl("cases/1/missing.jpg")).thenReturn("https://storage.example/missing-photo");
+        when(signer.createGetUrl("recordings/1.mp4")).thenReturn("https://storage.example/recording");
+        when(signer.createGetUrl("clips/1.mp4")).thenReturn("https://storage.example/clip");
         when(signer.createGetUrl("crops/detection-crop.jpg"))
                 .thenReturn("https://storage.example/detection-crop");
     }
@@ -84,6 +131,10 @@ class AdminCandidateQueryServiceTests {
         row.setSourceType(CandidateSourceType.REALTIME);
         row.setFrameObjectKey("frames/frame.jpg");
         row.setCropObjectKey("crops/crop.jpg");
+        row.setMissingPhotoObjectKey("cases/1/missing.jpg");
+        row.setRecordingObjectKey("recordings/1.mp4");
+        row.setClipObjectKey("clips/1.mp4");
+        row.setClipStatus("READY");
         return row;
     }
 }
