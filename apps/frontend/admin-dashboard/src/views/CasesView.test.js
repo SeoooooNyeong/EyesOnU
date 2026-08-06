@@ -1,13 +1,15 @@
 import { createApp, nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listCasesMock, mapCaseListItemMock, routerPushMock } = vi.hoisted(() => ({
+const { getCaseMock, listCasesMock, mapCaseListItemMock, routerPushMock } = vi.hoisted(() => ({
+  getCaseMock: vi.fn(),
   listCasesMock: vi.fn(),
   mapCaseListItemMock: vi.fn(),
   routerPushMock: vi.fn()
 }));
 
 vi.mock("../api/caseApi", () => ({
+  getCase: getCaseMock,
   listCases: listCasesMock
 }));
 
@@ -28,6 +30,7 @@ const rawCase = (overrides = {}) => ({
   gender: "남",
   age: 30,
   photo: "사진 없음",
+  photoUrl: null,
   reportedAt: "2026-07-30 10:00",
   lastSeenLocation: "서울특별시",
   status: "received",
@@ -109,6 +112,59 @@ describe("CasesView", () => {
     expect(root.textContent).toContain("전체 21건");
     expect(root.textContent).toContain("1 / 3");
     expect(root.querySelector("input[disabled]").value).toBe("미배정");
+  });
+
+  it("renders the list photoUrl as the case thumbnail without a detail request", async () => {
+    const photoUrl = "https://storage.example/cases/1/photo.jpg?signature=valid";
+    listCasesMock.mockResolvedValue(result([
+      rawCase({ photo: "기준 사진", photoUrl })
+    ]));
+
+    mount();
+    await settle();
+
+    const thumbnail = root.querySelector(".thumb");
+    const image = thumbnail.querySelector("img");
+    expect(image.getAttribute("src")).toBe(photoUrl);
+    expect(image.getAttribute("alt")).toBe("홍길동 기준 사진");
+    expect(thumbnail.textContent).not.toContain("기준 사진");
+    expect(getCaseMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the photo placeholder for null, undefined, and empty URLs", async () => {
+    listCasesMock.mockResolvedValue(result([
+      rawCase({ id: 1, photoUrl: null }),
+      rawCase({ id: 2, photoUrl: undefined }),
+      rawCase({ id: 3, photoUrl: "" })
+    ]));
+
+    mount();
+    await settle();
+
+    const thumbnails = [...root.querySelectorAll(".thumb")];
+    expect(thumbnails).toHaveLength(3);
+    expect(thumbnails.every((thumbnail) => thumbnail.querySelector("img") === null)).toBe(true);
+    expect(thumbnails.every((thumbnail) => thumbnail.textContent === "사진 없음")).toBe(true);
+  });
+
+  it("replaces only a failed image with the placeholder", async () => {
+    listCasesMock.mockResolvedValue(result([
+      rawCase({ id: 1, photo: "기준 사진", photoUrl: "https://storage.example/broken.jpg" }),
+      rawCase({ id: 2, photo: "기준 사진", photoUrl: "https://storage.example/healthy.jpg" })
+    ]));
+
+    mount();
+    await settle();
+
+    const [failedRow, healthyRow] = root.querySelectorAll(".case-table tbody tr");
+    failedRow.querySelector(".thumb img").dispatchEvent(new Event("error"));
+    await nextTick();
+
+    expect(failedRow.querySelector(".thumb img")).toBeNull();
+    expect(failedRow.querySelector(".thumb").textContent).toBe("사진 없음");
+    expect(healthyRow.querySelector(".thumb img").getAttribute("src"))
+      .toBe("https://storage.example/healthy.jpg");
+    expect(getCaseMock).not.toHaveBeenCalled();
   });
 
   it("converts screen pages and status filters to API parameters", async () => {
