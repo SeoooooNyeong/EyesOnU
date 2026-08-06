@@ -40,7 +40,7 @@ class AdminCandidateReviewServiceTests {
         when(mapper.findByIdForUpdate(CANDIDATE_ID)).thenReturn(current);
 
         assertThrows(ApiException.class, () -> service.review(
-                CANDIDATE_ID, new AdminCandidateReviewRequest("CONFIRMED", "확인", 2L), ADMIN_ID));
+                CANDIDATE_ID, new AdminCandidateReviewRequest("CONFIRMED", "기준 사진과 영상이 일치합니다", 2L), ADMIN_ID));
 
         verify(mapper, never()).updateReview(any(), any(), any(), any(), any());
         verify(auditService, never()).recordRequired(any(), any(), any(), any(), any(), any());
@@ -55,12 +55,34 @@ class AdminCandidateReviewServiceTests {
     }
 
     @Test
+    void rejectsMeaninglessShortConfirmationEvidenceBeforeLoadingCandidate() {
+        assertThrows(ApiException.class, () -> service.review(
+                CANDIDATE_ID, new AdminCandidateReviewRequest("CONFIRMED", "ttt", 1L), ADMIN_ID));
+
+        verify(mapper, never()).findByIdForUpdate(any());
+        verify(mapper, never()).updateReview(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void trimsAndStoresConfirmationEvidence() {
+        when(mapper.findByIdForUpdate(CANDIDATE_ID)).thenReturn(candidate(3L));
+        when(mapper.updateReview(CANDIDATE_ID, "CONFIRMED", "reference photo and clip context match", ADMIN_ID, 3L))
+                .thenReturn(1);
+
+        service.review(CANDIDATE_ID,
+                new AdminCandidateReviewRequest("CONFIRMED", "  reference photo and clip context match  ", 3L),
+                ADMIN_ID);
+
+        verify(mapper).updateReview(CANDIDATE_ID, "CONFIRMED", "reference photo and clip context match", ADMIN_ID, 3L);
+    }
+
+    @Test
     void rejectsWhenVersionChangesBetweenReadAndUpdate() {
         when(mapper.findByIdForUpdate(CANDIDATE_ID)).thenReturn(candidate(3L));
-        when(mapper.updateReview(CANDIDATE_ID, "CONFIRMED", "확인", ADMIN_ID, 3L)).thenReturn(0);
+        when(mapper.updateReview(CANDIDATE_ID, "CONFIRMED", "기준 사진과 영상이 일치합니다", ADMIN_ID, 3L)).thenReturn(0);
 
         assertThrows(ApiException.class, () -> service.review(
-                CANDIDATE_ID, new AdminCandidateReviewRequest("CONFIRMED", "확인", 3L), ADMIN_ID));
+                CANDIDATE_ID, new AdminCandidateReviewRequest("CONFIRMED", "기준 사진과 영상이 일치합니다", 3L), ADMIN_ID));
 
         verify(auditService, never()).recordRequired(any(), any(), any(), any(), any(), any());
         verify(queryService, never()).findById(any());
