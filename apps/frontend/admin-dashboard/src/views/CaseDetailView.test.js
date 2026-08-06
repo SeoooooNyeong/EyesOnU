@@ -190,9 +190,9 @@ describe("CaseDetailView", () => {
     expect(root.textContent).toContain("실시간");
     expect(root.textContent).toContain("녹화");
     expect(root.textContent).toContain("미판정");
-    expect(root.textContent).toContain("보류");
-    expect(root.textContent).toContain("확정");
-    expect(root.textContent).toContain("제외");
+    expect(root.textContent).toContain("후보 유지");
+    expect(root.textContent).toContain("대상 확인");
+    expect(root.textContent).toContain("대상 아님");
     expect(root.textContent).toContain("91%");
     expect(root.querySelectorAll(".candidate-row.detail-candidate")).toHaveLength(4);
     expect(root.querySelector('.candidate-row img').getAttribute("src")).toBe("https://storage.example/candidate.jpg");
@@ -286,7 +286,7 @@ describe("CaseDetailView", () => {
     expect(root.querySelector(".candidate-row .status-badge:last-child").textContent.trim()).toBe("미판정");
     await vi.advanceTimersByTimeAsync(5000);
     await flushUi();
-    expect(root.querySelector(".candidate-row .status-badge:last-child").textContent.trim()).toBe("확정");
+    expect(root.querySelector(".candidate-row .status-badge:last-child").textContent.trim()).toBe("대상 확인");
   });
 
   it("늦게 도착한 이전 사건 후보 응답이 새 사건 후보를 덮지 않는다", async () => {
