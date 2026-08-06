@@ -8,6 +8,7 @@ import {
   createRecordingAnalysisJob,
   fetchRecordingAnalysisJob,
   listAdminRecordings,
+  listRecordingAnalysisJobs,
   listRecordingAnalysisJobsForDashboard,
   cancelRecordingAnalysisJob,
   retryRecordingAnalysisJob
@@ -16,24 +17,26 @@ import {
 const router = useRouter();
 const cases = ref([]);
 const conditions = ref([]);
-const caseCameraIds = ref([]);
+const caseCameras = ref([]);
 const recordings = ref([]);
 const jobs = ref([]);
 const loading = ref(true);
 const recordingsLoading = ref(false);
 const submitting = ref(false);
+const submissionProgress = ref({ processed: 0, total: 0 });
+const batchResult = ref(null);
 const loadError = ref("");
 const actionError = ref("");
 const caseDropdownOpen = ref(false);
 const form = ref({
   caseId: "",
   conditionId: "",
-  recordingId: ""
+  cameraId: ""
 });
 
 const selectedCase = computed(() => cases.value.find((item) => String(item.id) === String(form.value.caseId)));
 const selectedCondition = computed(() => conditions.value.find((item) => String(item.id) === String(form.value.conditionId)));
-const selectedRecording = computed(() => recordings.value.find((item) => String(item.id) === String(form.value.recordingId)));
+const selectedCamera = computed(() => caseCameras.value.find((item) => String(item.cameraId) === String(form.value.cameraId)));
 const hasValidSearchTimeRange = computed(() => {
   const start = new Date(selectedCondition.value?.searchStart || "");
   const end = new Date(selectedCondition.value?.searchEnd || "");
@@ -44,59 +47,71 @@ const visibleJobs = computed(() => form.value.caseId
   : jobs.value);
 
 const formatDate = (value) => value ? new Date(value).toLocaleString("ko-KR") : "-";
-const recordingLabel = (recording) => {
-  const camera = recording.camera?.cameraCode || recording.camera?.cameraName || "카메라";
-  return `${camera} · ${formatDate(recording.startTime)} ~ ${formatDate(recording.endTime)}`;
-};
+const cameraLabel = (camera) => camera.cameraName
+  ? `${camera.cameraCode || `카메라 ${camera.cameraId}`} · ${camera.cameraName}`
+  : camera.cameraCode || `카메라 ${camera.cameraId}`;
 const jobProgress = (status) => ({ QUEUED: 3, RUNNING: 50, SUCCEEDED: 100, FAILED: 100, CANCELLED: 100 }[status] ?? 0);
 const jobStatus = (status) => ({ QUEUED: "searching", RUNNING: "searching", SUCCEEDED: "closed", FAILED: "failed", CANCELLED: "cancelled" }[status] || "searching");
+const isCurrentRecordingLoad = (requestId, caseId, conditionId, cameraId) => (
+  requestId === recordingLoadRequestId
+    && caseId === form.value.caseId
+    && conditionId === form.value.conditionId
+    && cameraId === form.value.cameraId
+);
 
 let recordingLoadRequestId = 0;
 const loadRecordings = async () => {
   const requestId = ++recordingLoadRequestId;
   const caseId = form.value.caseId;
   const conditionId = form.value.conditionId;
+  const cameraId = form.value.cameraId;
   const condition = selectedCondition.value;
-  const cameraIds = [...caseCameraIds.value];
   recordings.value = [];
-  form.value.recordingId = "";
   recordingsLoading.value = false;
+  batchResult.value = null;
 
-  if (!caseId || !conditionId || cameraIds.length === 0 || !hasValidSearchTimeRange.value) return;
+  if (!caseId || !conditionId || !cameraId || !selectedCamera.value || !hasValidSearchTimeRange.value) return;
 
   recordingsLoading.value = true;
-  let results;
+  const loadedRecordings = [];
   try {
-    results = await Promise.all(cameraIds.map((cameraId) => listAdminRecordings({
-      cameraId,
-      startFrom: condition.searchStart,
-      startTo: condition.searchEnd,
-      page: 0,
-      size: 100,
-      sort: "startTime,desc"
-    })));
+    let page = 0;
+    let totalPages = 1;
+    while (page < totalPages) {
+      const result = await listAdminRecordings({
+        cameraId: Number(cameraId),
+        startFrom: condition.searchStart,
+        startTo: condition.searchEnd,
+        page,
+        size: 100,
+        sort: "startTime,asc"
+      });
+      if (!isCurrentRecordingLoad(requestId, caseId, conditionId, cameraId)) return;
+
+      loadedRecordings.push(...(result.data || []));
+      const responseTotalPages = Number(result.meta?.totalPages);
+      totalPages = Number.isInteger(responseTotalPages) && responseTotalPages >= 0
+        ? responseTotalPages
+        : 1;
+      page += 1;
+    }
   } catch (exception) {
-    if (requestId !== recordingLoadRequestId
-        || caseId !== form.value.caseId
-        || conditionId !== form.value.conditionId) return;
+    if (!isCurrentRecordingLoad(requestId, caseId, conditionId, cameraId)) return;
     throw exception;
   } finally {
     if (requestId === recordingLoadRequestId) recordingsLoading.value = false;
   }
-  if (requestId !== recordingLoadRequestId
-      || caseId !== form.value.caseId
-      || conditionId !== form.value.conditionId) return;
+  if (!isCurrentRecordingLoad(requestId, caseId, conditionId, cameraId)) return;
 
-  const byId = new Map(results.flatMap((result) => result.data || []).map((recording) => [recording.id, recording]));
+  const byId = new Map(loadedRecordings
+    .filter((recording) => String(recording.camera?.id) === String(cameraId))
+    .map((recording) => [recording.id, recording]));
   recordings.value = [...byId.values()].sort((left, right) => (
-    new Date(right.startTime).getTime() - new Date(left.startTime).getTime()
+    new Date(left.startTime).getTime() - new Date(right.startTime).getTime()
   ));
-  if (!recordings.value.some((item) => String(item.id) === String(form.value.recordingId))) {
-    form.value.recordingId = recordings.value[0]?.id ? String(recordings.value[0].id) : "";
-  }
 };
 
-const changeCondition = async () => {
+const changeRecordingFilter = async () => {
   actionError.value = "";
   try {
     await loadRecordings();
@@ -119,8 +134,9 @@ const loadJobs = async () => {
 const loadCaseData = async () => {
   if (!form.value.caseId) {
     conditions.value = [];
-    caseCameraIds.value = [];
+    caseCameras.value = [];
     form.value.conditionId = "";
+    form.value.cameraId = "";
     return;
   }
   const [nextConditions, nextCameras] = await Promise.all([
@@ -128,9 +144,7 @@ const loadCaseData = async () => {
     listCaseCameras(form.value.caseId)
   ]);
   conditions.value = nextConditions;
-  caseCameraIds.value = nextCameras
-    .filter((camera) => camera.searchEnabled && !camera.removedAt)
-    .map((camera) => camera.cameraId);
+  caseCameras.value = nextCameras.filter((camera) => camera.searchEnabled && !camera.removedAt);
   if (!conditions.value.some((item) => String(item.id) === String(form.value.conditionId))) {
     form.value.conditionId = conditions.value[0]?.id ? String(conditions.value[0].id) : "";
   }
@@ -160,11 +174,11 @@ const selectCase = async (caseItem) => {
   recordingLoadRequestId += 1;
   recordingsLoading.value = false;
   form.value.caseId = String(caseItem.id);
+  form.value.cameraId = "";
   recordings.value = [];
-  form.value.recordingId = "";
+  batchResult.value = null;
   caseDropdownOpen.value = false;
   await loadCaseData();
-  await loadRecordings();
 };
 
 const selectAllCases = () => {
@@ -172,10 +186,11 @@ const selectAllCases = () => {
   recordingsLoading.value = false;
   form.value.caseId = "";
   form.value.conditionId = "";
+  form.value.cameraId = "";
   conditions.value = [];
-  caseCameraIds.value = [];
+  caseCameras.value = [];
   recordings.value = [];
-  form.value.recordingId = "";
+  batchResult.value = null;
   caseDropdownOpen.value = false;
 };
 
@@ -184,25 +199,57 @@ const requestSearch = async () => {
     actionError.value = "탐색 시작·종료 시간이 설정된 조건만 녹화 분석에 사용할 수 있습니다.";
     return;
   }
-  const selectedCameraId = selectedRecording.value?.camera?.id;
-  const recordingBelongsToCase = selectedCameraId != null && caseCameraIds.value.some(
-    (cameraId) => String(cameraId) === String(selectedCameraId)
-  );
-  if (!form.value.caseId || !form.value.conditionId || !form.value.recordingId
-      || !selectedRecording.value || !recordingBelongsToCase) {
-    actionError.value = "사건, 탐색 조건, 녹화를 모두 선택해주세요.";
+  if (!form.value.caseId || !form.value.conditionId || !form.value.cameraId
+      || !selectedCamera.value || recordings.value.length === 0) {
+    actionError.value = "사건, 탐색 조건, 카메라를 선택하고 대상 녹화본을 확인해주세요.";
     return;
   }
+
   submitting.value = true;
   actionError.value = "";
+  batchResult.value = null;
+  submissionProgress.value = { processed: 0, total: recordings.value.length };
   try {
-    const job = await createRecordingAnalysisJob(form.value.caseId, {
-      conditionId: Number(form.value.conditionId),
-      recordingId: Number(form.value.recordingId)
-    });
-    jobs.value.unshift(job);
+    const caseId = form.value.caseId;
+    const conditionId = Number(form.value.conditionId);
+    const latestCaseJobs = await listRecordingAnalysisJobs(caseId);
+    jobs.value = [
+      ...jobs.value.filter((item) => String(item.caseId) !== String(caseId)),
+      ...latestCaseJobs
+    ].sort((left, right) => new Date(right.requestedAt).getTime() - new Date(left.requestedAt).getTime());
+
+    const activeRecordingIds = new Set(latestCaseJobs
+      .filter((item) => item.conditionId === conditionId && ["QUEUED", "RUNNING"].includes(item.status))
+      .map((item) => String(item.recordingId)));
+    const result = { created: 0, skipped: 0, failed: 0, failures: [] };
+
+    for (const recording of recordings.value) {
+      if (activeRecordingIds.has(String(recording.id))) {
+        result.skipped += 1;
+        submissionProgress.value.processed += 1;
+        continue;
+      }
+
+      try {
+        const createdJob = await createRecordingAnalysisJob(caseId, {
+          conditionId,
+          recordingId: Number(recording.id)
+        });
+        jobs.value.unshift(createdJob);
+        result.created += 1;
+      } catch (exception) {
+        result.failed += 1;
+        result.failures.push({
+          recordingId: recording.id,
+          message: exception.message || "녹화 분석 작업을 등록하지 못했습니다."
+        });
+      } finally {
+        submissionProgress.value.processed += 1;
+      }
+    }
+    batchResult.value = result;
   } catch (exception) {
-    actionError.value = exception.message || "녹화 분석 작업을 등록하지 못했습니다.";
+    actionError.value = exception.message || "기존 녹화 분석 작업을 확인하지 못했습니다.";
   } finally {
     submitting.value = false;
   }
@@ -246,10 +293,11 @@ watch(
   () => [
     form.value.caseId,
     form.value.conditionId,
-    form.value.recordingId
+    form.value.cameraId
   ],
   () => {
     actionError.value = "";
+    batchResult.value = null;
   }
 );
 
@@ -266,7 +314,7 @@ onUnmounted(() => {
 <template>
   <section class="content-panel">
     <div class="section-heading">
-      <div><h2>녹화 영상 탐색</h2><p>사건의 탐색 조건과 저장된 녹화를 선택해 분석 작업을 등록합니다.</p></div>
+      <div><h2>녹화 영상 탐색</h2><p>사건의 탐색 조건과 카메라를 선택해 기간 내 녹화본의 분석 작업을 등록합니다.</p></div>
     </div>
 
     <StateBlock :loading="loading" :error="loadError" @retry="load">
@@ -276,7 +324,7 @@ onUnmounted(() => {
         <div class="filter-bar recording-filter-main">
           <label class="case-select-field">사건
             <div class="case-picker">
-              <button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCase?.caseNumber || "사건 선택" }}</button>
+              <button type="button" class="case-picker-trigger" :disabled="submitting" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCase?.caseNumber || "사건 선택" }}</button>
               <div v-if="caseDropdownOpen" class="case-picker-menu">
                 <button type="button" class="case-picker-option" @click="selectAllCases">사건 선택</button>
                 <button v-for="item in cases" :key="item.id" type="button" class="case-picker-option" @click="selectCase(item)">{{ item.caseNumber }} · {{ item.name }}</button>
@@ -284,7 +332,7 @@ onUnmounted(() => {
             </div>
           </label>
           <label>탐색 조건
-            <select v-model="form.conditionId" @change="changeCondition">
+            <select v-model="form.conditionId" :disabled="submitting || !form.caseId" @change="changeRecordingFilter">
               <option value="">조건 선택</option>
               <option v-for="condition in conditions" :key="condition.id" :value="String(condition.id)">{{ condition.prompt || `조건 ${condition.id}` }}</option>
             </select>
@@ -297,18 +345,26 @@ onUnmounted(() => {
           <label>탐색 기간
             <input :value="hasValidSearchTimeRange ? `${formatDate(selectedCondition.searchStart)} ~ ${formatDate(selectedCondition.searchEnd)}` : ''" placeholder="탐색 조건의 시작·종료 시간" readonly />
           </label>
-          <label>녹화
-            <select v-model="form.recordingId" :disabled="recordingsLoading || !hasValidSearchTimeRange || recordings.length === 0">
-              <option value="">녹화 선택</option>
-              <option v-for="recording in recordings" :key="recording.id" :value="String(recording.id)">{{ recordingLabel(recording) }}</option>
+          <label>카메라
+            <select v-model="form.cameraId" :disabled="submitting || recordingsLoading || !hasValidSearchTimeRange || caseCameras.length === 0" @change="changeRecordingFilter">
+              <option value="">카메라 선택</option>
+              <option v-for="camera in caseCameras" :key="camera.cameraId" :value="String(camera.cameraId)">{{ cameraLabel(camera) }}</option>
             </select>
           </label>
-          <button class="search-button" :disabled="submitting || recordingsLoading || !hasValidSearchTimeRange || !selectedRecording" @click="requestSearch">{{ submitting ? "등록 중..." : "탐색 요청" }}</button>
+          <button class="search-button" :disabled="submitting || recordingsLoading || !hasValidSearchTimeRange || !selectedCamera || recordings.length === 0" @click="requestSearch">{{ submitting ? `${submissionProgress.processed}/${submissionProgress.total} 요청 중` : "기간 전체 탐색 요청" }}</button>
         </div>
         <p v-if="selectedCondition && !hasValidSearchTimeRange" class="muted-text">탐색 시작·종료 시간이 필요한 조건입니다.</p>
         <p v-else-if="recordingsLoading" class="muted-text">탐색 기간과 겹치는 녹화본을 불러오는 중입니다.</p>
-        <p v-else-if="selectedCondition && hasValidSearchTimeRange && recordings.length === 0" class="muted-text">탐색 기간과 겹치는 녹화본이 없습니다.</p>
-        <p v-if="selectedRecording" class="muted-text">선택된 녹화: {{ recordingLabel(selectedRecording) }}</p>
+        <p v-else-if="selectedCamera && hasValidSearchTimeRange && recordings.length === 0" class="muted-text">선택한 카메라에 탐색 기간과 겹치는 녹화본이 없습니다.</p>
+        <p v-else-if="selectedCamera && hasValidSearchTimeRange" class="muted-text">분석 대상 녹화본 {{ recordings.length }}개 · {{ cameraLabel(selectedCamera) }}</p>
+        <p v-if="submitting" class="muted-text" role="status" aria-live="polite">{{ submissionProgress.processed }} / {{ submissionProgress.total }}건 처리했습니다.</p>
+        <p v-if="batchResult" class="muted-text" role="status">생성 {{ batchResult.created }}건 · 이미 요청됨 {{ batchResult.skipped }}건 · 실패 {{ batchResult.failed }}건</p>
+        <div v-if="batchResult?.failures.length" class="form-error" role="alert">
+          <strong>실패한 녹화본</strong>
+          <ul>
+            <li v-for="failure in batchResult.failures" :key="failure.recordingId">녹화 ID {{ failure.recordingId }}: {{ failure.message }}</li>
+          </ul>
+        </div>
       </div>
 
       <div class="job-list">

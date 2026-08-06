@@ -209,15 +209,25 @@ describe("CaseDetailView", () => {
     expect(routeApi.getCaseRoute).toHaveBeenCalledWith("17");
     expect(root.textContent).toContain("김민수");
     expect(root.textContent).toContain("홍길동(보호자) / 01012345678");
-    expect(root.textContent).toContain("미배정");
+    expect(root.textContent).not.toContain("담당자");
     expect(root.textContent).toContain("확인된 동선이 없습니다.");
     expect(root.textContent).toContain("탐지된 후보가 없습니다.");
     expect(root.querySelector(".portrait img").getAttribute("src")).toBe("https://storage.example/photo.jpg");
+    expect(root.querySelector(".portrait img").getAttribute("alt")).toBe("김민수 기준 사진");
 
     const options = [...root.querySelectorAll('select[aria-label="변경할 사건 상태"] option')]
       .map((option) => option.value);
     expect(options).toEqual(["searching"]);
     expect(root.textContent).toContain("현장 탐색");
+  });
+
+  it("사진이 없는 상세 응답에는 기존 placeholder를 유지한다", async () => {
+    caseApi.getCase.mockResolvedValue(rawCase({ photoUrl: null }));
+
+    const root = await mountView();
+
+    expect(root.querySelector(".portrait img")).toBeNull();
+    expect(root.querySelector(".portrait").textContent).toContain("등록된 사진이 없습니다.");
   });
 
   it("모든 판정 상태의 후보를 표시하고 후보 상세로 이동한다", async () => {
