@@ -302,7 +302,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   height: auto;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #e4e8ef;
+  border: 1.5px solid #e4e8ef;
   background: #fff;
   border-radius: 8px;
   padding: 12px;
