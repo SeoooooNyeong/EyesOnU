@@ -207,6 +207,7 @@ services:
       MINIO_ROOT_USER: ${DEV_MINIO_ROOT_USER:?Set DEV_MINIO_ROOT_USER in infra/.env.deploy}
       MINIO_ROOT_PASSWORD: ${DEV_MINIO_ROOT_PASSWORD:?Set DEV_MINIO_ROOT_PASSWORD in infra/.env.deploy}
       MINIO_REGION_NAME: ${DEV_MINIO_REGION:-${DEV_S3_REGION:-ap-northeast-2}}
+      MINIO_BROWSER_REDIRECT_URL: ${DEV_MINIO_CONSOLE_URL:-https://console-dev.13.125.211.107.nip.io}
     volumes:
       - minio_dev_data:/data
     healthcheck:
@@ -364,6 +365,7 @@ services:
       MINIO_ROOT_USER: ${MASTER_MINIO_ROOT_USER:?Set MASTER_MINIO_ROOT_USER in infra/.env.deploy}
       MINIO_ROOT_PASSWORD: ${MASTER_MINIO_ROOT_PASSWORD:?Set MASTER_MINIO_ROOT_PASSWORD in infra/.env.deploy}
       MINIO_REGION_NAME: ${MASTER_MINIO_REGION:-${MASTER_S3_REGION:-ap-northeast-2}}
+      MINIO_BROWSER_REDIRECT_URL: ${MASTER_MINIO_CONSOLE_URL:-https://console-master.13.125.211.107.nip.io}
     volumes:
       - minio_master_data:/data
     healthcheck:
