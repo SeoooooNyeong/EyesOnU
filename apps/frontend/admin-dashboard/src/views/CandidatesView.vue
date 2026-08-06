@@ -259,9 +259,11 @@ onUnmounted(() => {
             <strong>{{ item.caseNumber }}</strong>
             <span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
             <p>{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
-            <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }} · track {{ item.trackId }}</p>
             <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b>
-            <span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span>
+            <div class="candidate-card-bottom-row">
+              <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }} · track {{ item.trackId }}</p>
+              <span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span>
+            </div>
           </div>
         </button>
       </div>
