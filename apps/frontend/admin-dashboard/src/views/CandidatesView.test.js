@@ -91,6 +91,7 @@ describe("CandidatesView", () => {
     expect(root.querySelector(".candidate-list-actions .candidate-sort-select")).not.toBeNull();
     expect(root.querySelector(".candidate-list-actions .resolved-candidates-toggle")).not.toBeNull();
     expect(root.querySelector(".candidate-list-actions").firstElementChild.classList.contains("resolved-candidates-toggle-row")).toBe(true);
+    expect(root.querySelector(".candidate-list-actions").lastElementChild.classList.contains("view-toggle")).toBe(true);
     expect(realtimeButton).not.toBeNull();
     expect(recordingButton).not.toBeNull();
     realtimeButton.click();

@@ -153,12 +153,6 @@ onUnmounted(() => {
         <h2>후보 검토 목록</h2>
         <p>미판정 후보를 우선 확인하고, 유사도와 탐지 시각 기준으로 빠르게 검토합니다.</p>
       </div>
-      <div class="candidate-heading-actions">
-        <div class="segmented view-toggle">
-          <button :class="{ active: filters.view === 'card' }" title="카드 보기" aria-label="카드 보기" @click="filters.view = 'card'"><LayoutGrid :size="17" /></button>
-          <button :class="{ active: filters.view === 'table' }" title="테이블 보기" aria-label="테이블 보기" @click="filters.view = 'table'"><Table2 :size="17" /></button>
-        </div>
-      </div>
     </div>
 
     <div class="filter-bar candidate-filter-bar">
@@ -213,7 +207,12 @@ onUnmounted(() => {
             <option value="realtimeFirst">실시간 우선</option>
             <option value="bestSimilarity,desc">유사도 높은 순</option>
             <option value="lastDetectedAt,desc">탐지 최신순</option>
-          </select>
+            </select>
+        </div>
+
+        <div class="segmented view-toggle">
+          <button :class="{ active: filters.view === 'card' }" title="카드 보기" aria-label="카드 보기" @click="filters.view = 'card'"><LayoutGrid :size="17" /></button>
+          <button :class="{ active: filters.view === 'table' }" title="테이블 보기" aria-label="테이블 보기" @click="filters.view = 'table'"><Table2 :size="17" /></button>
         </div>
       </div>
     </div>
