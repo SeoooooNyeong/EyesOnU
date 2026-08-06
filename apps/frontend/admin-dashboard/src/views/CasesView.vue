@@ -21,6 +21,7 @@ const page = ref(1);
 const pageSize = ref(10);
 const totalPages = ref(1);
 const totalCount = ref(0);
+const failedPhotoUrls = reactive(new Map());
 const selectedCase = computed(() => caseOptions.value.find((item) => item.caseNumber === filters.keyword));
 
 let latestRequestId = 0;
@@ -35,6 +36,16 @@ const listParams = () => ({
 
 const errorMessage = (cause, fallback) => cause?.message || fallback;
 
+const shouldShowPhoto = (item) => (
+  typeof item.photoUrl === "string"
+  && item.photoUrl.trim().length > 0
+  && failedPhotoUrls.get(item.id) !== item.photoUrl
+);
+
+const handlePhotoError = (item) => {
+  failedPhotoUrls.set(item.id, item.photoUrl);
+};
+
 const load = async () => {
   const requestId = ++latestRequestId;
   loading.value = true;
@@ -44,6 +55,7 @@ const load = async () => {
     const result = await listCases(listParams());
     if (requestId !== latestRequestId) return;
 
+    failedPhotoUrls.clear();
     rows.value = (result.data || []).map(mapCaseListItem);
     totalPages.value = Math.max(1, result.meta?.totalPages || 0);
     totalCount.value = result.meta?.totalElements || 0;
@@ -146,7 +158,7 @@ onMounted(load);
           <thead><tr><th>사건 번호</th><th>사진</th><th>이름</th><th>성별</th><th>나이</th><th>신고 시각</th><th>목격 위치</th><th>상태</th><th>담당자</th><th></th></tr></thead>
           <tbody>
             <tr v-for="item in rows" :key="item.id">
-              <td class="mono">{{ item.caseNumber }}</td><td><span class="thumb">{{ item.photo }}</span></td><td>{{ item.name }}</td><td>{{ item.gender }}</td><td>{{ item.age }}</td><td>{{ item.reportedAt }}</td><td>{{ item.lastSeenLocation }}</td><td><span v-if="item.status === 'field_search'" class="status-badge green">현장 탐색</span><StatusBadge v-else :status="item.status" /></td><td>미배정</td><td><button class="ghost-button" @click="router.push(`/admin/cases/${item.id}`)">상세보기</button></td>
+              <td class="mono">{{ item.caseNumber }}</td><td><span class="thumb"><img v-if="shouldShowPhoto(item)" :src="item.photoUrl" :alt="`${item.name || '실종자'} 기준 사진`" @error="handlePhotoError(item)" /><span v-else>사진 없음</span></span></td><td>{{ item.name }}</td><td>{{ item.gender }}</td><td>{{ item.age }}</td><td>{{ item.reportedAt }}</td><td>{{ item.lastSeenLocation }}</td><td><span v-if="item.status === 'field_search'" class="status-badge green">현장 탐색</span><StatusBadge v-else :status="item.status" /></td><td>미배정</td><td><button class="ghost-button" @click="router.push(`/admin/cases/${item.id}`)">상세보기</button></td>
             </tr>
           </tbody>
         </table>

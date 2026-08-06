@@ -80,11 +80,19 @@ describe("caseMapper", () => {
       age: 75,
       status: "candidate_found",
       photo: "기준 사진",
+      photoUrl: "https://storage.example/photo.jpg",
       lastSeenAt: "2026-07-20 09:10",
       lastSeenLocation: "서울 강남구",
       reportedAt: "2026-07-20 10:30",
       assignee: "-"
     });
+  });
+
+  it("사진 URL이 없으면 원본 계약을 null과 placeholder로 보존한다", () => {
+    const mapped = mapCaseListItem({ ...rawDetail(), photoUrl: null });
+
+    expect(mapped.photoUrl).toBeNull();
+    expect(mapped.photo).toBe("사진 없음");
   });
 
   it("상세 응답에 신고자·인상착의 표시 문자열과 원본 객체를 함께 제공한다", () => {
