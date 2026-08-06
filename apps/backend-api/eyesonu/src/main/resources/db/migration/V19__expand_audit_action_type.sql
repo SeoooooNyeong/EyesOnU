@@ -1,0 +1,2 @@
+ALTER TABLE audit_logs
+    MODIFY COLUMN action_type VARCHAR(64) NOT NULL;
