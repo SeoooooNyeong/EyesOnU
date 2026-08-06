@@ -258,7 +258,7 @@ onUnmounted(() => {
           <span v-else class="image-placeholder large">이미지 없음</span>
           <div class="candidate-card-content">
             <strong>{{ item.caseNumber }}</strong>
-            <p>{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
+            <p class="candidate-detection-meta">{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
             <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b>
             <div class="candidate-card-bottom-row">
               <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }} · track {{ item.trackId }}</p>
