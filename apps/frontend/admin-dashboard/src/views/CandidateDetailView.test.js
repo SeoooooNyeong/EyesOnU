@@ -91,6 +91,24 @@ describe("CandidateDetailView", () => {
     expect(root.querySelector('img[alt="AI 후보 크롭 이미지"]').getAttribute("src")).toBe(candidate.cropUrl);
     expect(root.querySelector("video").getAttribute("src")).toBe(candidate.clipUrl);
     expect(root.querySelector("iframe").getAttribute("title")).toBe("탐지 CCTV 위치 지도");
+    expect(root.textContent).not.toContain("PENDING");
+    expect(root.textContent).not.toContain("2026-08-05T03:20:00Z");
+  });
+
+  it("blocks a short confirmation evidence comment", async () => {
+    const root = await mountView();
+    const select = root.querySelector("select");
+    const textarea = root.querySelector("textarea");
+
+    select.value = "CONFIRMED";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    textarea.value = "ttt";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await flushUi();
+
+    expect(root.textContent).toContain("대상 확인 시 판정 근거를 10자 이상 입력해 주세요.");
+    expect(root.querySelector('button[type="submit"]').disabled).toBe(true);
+    expect(candidateApi.reviewAdminCandidate).not.toHaveBeenCalled();
   });
 
   it("클립이 없으면 원본 녹화본을 탐지 전후 구간 재생 대상으로 안내한다", async () => {
