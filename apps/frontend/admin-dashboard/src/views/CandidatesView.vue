@@ -280,12 +280,9 @@ onUnmounted(() => {
       <span class="filter-hint">탐지 기간은 마지막 탐지 시각 기준으로 적용됩니다.</span>
     </div>
 
-    <div v-if="resolvedRows.length" class="resolved-candidates-toggle">
-      <span>확정·제외 후보 {{ resolvedRows.length }}건</span>
-      <button class="ghost-button" type="button" @click="resolvedCollapsed = !resolvedCollapsed">
-        {{ shouldCollapseResolved ? "펼치기" : "접기" }}
-      </button>
-    </div>
+    <button v-if="resolvedRows.length" class="resolved-candidates-toggle" type="button" @click="resolvedCollapsed = !resolvedCollapsed">
+      확정·제외 후보 {{ resolvedRows.length }}건 · {{ shouldCollapseResolved ? "펼치기" : "접기" }}
+    </button>
 
     <p v-if="loading" class="empty-state">후보 목록을 불러오는 중입니다.</p>
     <p v-else-if="error" class="error-message">{{ error }}</p>

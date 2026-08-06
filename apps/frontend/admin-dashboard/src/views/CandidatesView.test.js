@@ -67,7 +67,7 @@ describe("CandidatesView", () => {
     expect(root.textContent).toContain("확정·제외 후보 1건");
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(1);
 
-    root.querySelector(".resolved-candidates-toggle button").click();
+    root.querySelector(".resolved-candidates-toggle").click();
     await flushUi();
 
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(2);
