@@ -23,8 +23,6 @@ const filters = reactive({
   source: "all",
   review: "all",
   cameraId: "",
-  detectedFrom: "",
-  detectedTo: "",
   sort: "pendingFirst",
   view: "card"
 });
@@ -47,19 +45,11 @@ const displayRows = computed(() => shouldCollapseResolved.value
   ? rows.value.filter((item) => !resolvedStatuses.has(String(item.reviewStatus || "").toUpperCase()))
   : rows.value);
 
-const toIso = (value) => {
-  if (!value) return undefined;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-};
-
 const listParams = ({ pageNumber = page.value - 1, size = PAGE_SIZE, reviewStatus } = {}) => ({
   caseId: filters.caseId || undefined,
   sourceType: filters.source === "all" ? undefined : filters.source,
   reviewStatus: reviewStatus || (filters.review === "all" ? undefined : filters.review.toUpperCase()),
   cameraId: filters.cameraId || undefined,
-  detectedFrom: toIso(filters.detectedFrom),
-  detectedTo: toIso(filters.detectedTo),
   page: pageNumber,
   size,
   sort: filters.sort
@@ -96,9 +86,6 @@ const candidateErrorMessage = (exception) => {
   if (message.includes("sort must be one of")) {
     return "정렬 기준을 불러오지 못했습니다. 서버를 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.";
   }
-  if (message.includes("detectedFrom must be before detectedTo")) {
-    return "탐지 시작 시간은 종료 시간보다 빨라야 합니다.";
-  }
   if (message.includes("reviewStatus must be")) {
     return "판정 상태 필터가 올바르지 않습니다.";
   }
@@ -134,7 +121,7 @@ const selectCase = (caseItem) => {
   caseDropdownOpen.value = false;
 };
 
-watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.detectedFrom, filters.detectedTo, filters.sort], () => {
+watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.sort], () => {
   if (page.value !== 1) {
     page.value = 1;
     return;
@@ -199,54 +186,36 @@ onUnmounted(() => {
           <option value="rejected">대상 아님</option>
         </select>
       </label>
-    </div>
-
-    <div class="candidate-secondary-filters">
       <div class="candidate-source-filter">
-        <div class="candidate-source-options" role="group" aria-label="탐지 출처">
+        <strong class="candidate-source-filter-label">영상 유형</strong>
+        <div class="candidate-source-options" role="group" aria-label="영상 유형">
           <button type="button" :class="['candidate-source-option', { active: filters.source === 'all' }]" :aria-pressed="filters.source === 'all'" @click="filters.source = 'all'">전체</button>
           <button type="button" :class="['candidate-source-option', 'green', { active: filters.source === 'REALTIME' }]" :aria-pressed="filters.source === 'REALTIME'" @click="filters.source = 'REALTIME'">실시간</button>
           <button type="button" :class="['candidate-source-option', 'blue', { active: filters.source === 'RECORDING_ANALYSIS' }]" :aria-pressed="filters.source === 'RECORDING_ANALYSIS'" @click="filters.source = 'RECORDING_ANALYSIS'">녹화영상</button>
         </div>
       </div>
-
-      <div class="candidate-display-settings">
-        <div class="candidate-display-controls">
-          <label>정렬
-            <select v-model="filters.sort">
-              <option value="pendingFirst">미판정 우선</option>
-              <option value="realtimeFirst">실시간 우선</option>
-              <option value="bestSimilarity,desc">유사도 높은 순</option>
-              <option value="lastDetectedAt,desc">탐지 최신순</option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <div class="candidate-date-filter">
-        <strong class="candidate-date-filter-label">탐지 기간</strong>
-        <div class="candidate-date-range">
-          <label>
-            <span class="visually-hidden">탐지 시작</span>
-            <input v-model="filters.detectedFrom" type="datetime-local" />
-          </label>
-          <span class="candidate-date-range-separator" aria-hidden="true">~</span>
-          <label>
-            <span class="visually-hidden">탐지 종료</span>
-            <input v-model="filters.detectedTo" type="datetime-local" />
-          </label>
-        </div>
-        <span class="filter-hint">탐지 기간은 마지막 탐지 시각 기준으로 적용됩니다.</span>
-      </div>
     </div>
 
-    <div v-if="resolvedRows.length" class="resolved-candidates-toggle-row">
-      <span class="resolved-candidates-toggle-label">확정·제외 후보 <strong>{{ resolvedRows.length }}건</strong></span>
-      <button class="resolved-candidates-toggle" type="button" role="switch" :aria-checked="!shouldCollapseResolved" :aria-label="shouldCollapseResolved ? '확정·제외 후보 펼치기' : '확정·제외 후보 접기'" @click="resolvedCollapsed = !resolvedCollapsed">
-        <span class="resolved-candidates-toggle-track" aria-hidden="true">
-          <span class="resolved-candidates-toggle-thumb"></span>
-        </span>
-      </button>
+    <div class="candidate-list-actions">
+      <div class="candidate-sort-control">
+        <label for="candidate-sort">정렬
+          <select id="candidate-sort" class="candidate-sort-select" v-model="filters.sort">
+            <option value="pendingFirst">미판정 우선</option>
+            <option value="realtimeFirst">실시간 우선</option>
+            <option value="bestSimilarity,desc">유사도 높은 순</option>
+            <option value="lastDetectedAt,desc">탐지 최신순</option>
+          </select>
+        </label>
+      </div>
+
+      <div v-if="resolvedRows.length" class="resolved-candidates-toggle-row">
+        <span class="resolved-candidates-toggle-label">확정·제외 후보 <strong>{{ resolvedRows.length }}건</strong></span>
+        <button class="resolved-candidates-toggle" type="button" role="switch" :aria-checked="!shouldCollapseResolved" :aria-label="shouldCollapseResolved ? '확정·제외 후보 펼치기' : '확정·제외 후보 접기'" @click="resolvedCollapsed = !resolvedCollapsed">
+          <span class="resolved-candidates-toggle-track" aria-hidden="true">
+            <span class="resolved-candidates-toggle-thumb"></span>
+          </span>
+        </button>
+      </div>
     </div>
 
     <p v-if="loading" class="empty-state">후보 목록을 불러오는 중입니다.</p>

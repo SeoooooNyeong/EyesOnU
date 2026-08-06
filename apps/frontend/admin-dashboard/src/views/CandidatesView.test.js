@@ -62,7 +62,6 @@ describe("CandidatesView", () => {
 
     expect(root.textContent).toContain("미판정 우선");
     expect(root.textContent).toContain("카메라");
-    expect(root.textContent).toContain("탐지 시작");
     expect(root.textContent).toContain("확정·제외 후보 1건");
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(1);
 
@@ -77,6 +76,9 @@ describe("CandidatesView", () => {
     const realtimeButton = root.querySelector(".candidate-source-option.green");
     const recordingButton = root.querySelector(".candidate-source-option.blue");
 
+    expect(root.querySelector(".candidate-source-filter-label").textContent).toContain("영상 유형");
+    expect(root.querySelector(".candidate-list-actions .candidate-sort-select")).not.toBeNull();
+    expect(root.querySelector(".candidate-list-actions .resolved-candidates-toggle")).not.toBeNull();
     expect(realtimeButton).not.toBeNull();
     expect(recordingButton).not.toBeNull();
     realtimeButton.click();
@@ -86,7 +88,7 @@ describe("CandidatesView", () => {
     expect(candidateApi.fetchAdminCandidates).toHaveBeenLastCalledWith(expect.objectContaining({ sourceType: "REALTIME" }));
   });
 
-  it("uses the selected camera, date range, and sort in the request", async () => {
+  it("uses the selected camera and sort in the request", async () => {
     const { root } = await mountView();
     const selects = root.querySelectorAll("select");
     const cameraSelect = [...selects].find((select) => select.value === "");
@@ -95,18 +97,11 @@ describe("CandidatesView", () => {
     const sortSelect = [...selects].find((select) => [...select.options].some((option) => option.value === "bestSimilarity,desc"));
     sortSelect.value = "bestSimilarity,desc";
     sortSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    const dates = root.querySelectorAll('input[type="datetime-local"]');
-    dates[0].value = "2026-08-05T17:00";
-    dates[0].dispatchEvent(new Event("input", { bubbles: true }));
-    dates[1].value = "2026-08-05T18:00";
-    dates[1].dispatchEvent(new Event("input", { bubbles: true }));
     await flushUi();
 
     expect(candidateApi.fetchAdminCandidates).toHaveBeenLastCalledWith(expect.objectContaining({
       cameraId: "11",
-      sort: "bestSimilarity,desc",
-      detectedFrom: new Date("2026-08-05T17:00").toISOString(),
-      detectedTo: new Date("2026-08-05T18:00").toISOString()
+      sort: "bestSimilarity,desc"
     }));
   });
 
