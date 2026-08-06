@@ -294,7 +294,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   --candidate-image-width: 140px;
   --candidate-image-height: 140px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
   justify-content: start;
