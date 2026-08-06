@@ -235,7 +235,7 @@ onUnmounted(() => {
             <strong>{{ item.caseNumber }}</strong>
             <p class="candidate-detection-meta">{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
             <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b>
-            <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }} · track {{ item.trackId }}</p>
+            <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }}</p>
           </div>
         </button>
       </div>

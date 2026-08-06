@@ -63,6 +63,7 @@ describe("CandidatesView", () => {
     expect(root.textContent).toContain("미판정 우선");
     expect(root.textContent).toContain("카메라");
     expect(root.textContent).toContain("확정·제외 후보 1건");
+    expect(root.textContent).not.toContain("track");
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(1);
 
     root.querySelector(".resolved-candidates-toggle").click();
