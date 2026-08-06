@@ -252,7 +252,7 @@ onUnmounted(() => {
     <p v-else-if="displayRows.length === 0" class="empty-state">접힌 확정·제외 후보 외에 표시할 후보가 없습니다.</p>
     <template v-else>
       <div v-if="filters.view === 'card'" class="candidate-grid">
-        <button v-for="item in displayRows" :key="item.id" class="candidate-card" @click="openCandidate(item)">
+        <button v-for="item in displayRows" :key="item.id" :class="['candidate-card', `review-${reviewStatusTone(item.reviewStatus)}`]" @click="openCandidate(item)">
           <span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
           <img v-if="item.cropUrl" :src="item.cropUrl" alt="후보 캡처" />
           <span v-else class="image-placeholder large">이미지 없음</span>

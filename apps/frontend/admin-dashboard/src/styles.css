@@ -308,6 +308,10 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   flex-direction: column;
   gap: 12px;
 }
+.candidate-card.review-amber { border-color: #e4c96f; }
+.candidate-card.review-blue { border-color: #9fc3e7; }
+.candidate-card.review-green { border-color: #9dceb0; }
+.candidate-card.review-gray { border-color: #c6ced6; }
 .candidate-card > img, .candidate-card > .image-placeholder.large {
   width: var(--candidate-image-width);
   height: var(--candidate-image-height);
