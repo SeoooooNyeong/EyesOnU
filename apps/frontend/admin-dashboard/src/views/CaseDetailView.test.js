@@ -209,7 +209,7 @@ describe("CaseDetailView", () => {
     expect(routeApi.getCaseRoute).toHaveBeenCalledWith("17");
     expect(root.textContent).toContain("김민수");
     expect(root.textContent).toContain("홍길동(보호자) / 01012345678");
-    expect(root.textContent).toContain("미배정");
+    expect(root.textContent).not.toContain("담당자");
     expect(root.textContent).toContain("확인된 동선이 없습니다.");
     expect(root.textContent).toContain("탐지된 후보가 없습니다.");
     expect(root.querySelector(".portrait img").getAttribute("src")).toBe("https://storage.example/photo.jpg");

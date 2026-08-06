@@ -158,8 +158,7 @@ export function mapCaseListItem(source) {
     reportedAt: formatKstDateTime(source.reportedAt),
     reportedAtIso: source.reportedAt,
     updatedAt: formatKstDateTime(source.updatedAt),
-    updatedAtIso: source.updatedAt,
-    assignee: "-"
+    updatedAtIso: source.updatedAt
   };
 }
 

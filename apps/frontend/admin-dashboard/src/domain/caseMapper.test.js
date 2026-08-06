@@ -83,9 +83,9 @@ describe("caseMapper", () => {
       photoUrl: "https://storage.example/photo.jpg",
       lastSeenAt: "2026-07-20 09:10",
       lastSeenLocation: "서울 강남구",
-      reportedAt: "2026-07-20 10:30",
-      assignee: "-"
+      reportedAt: "2026-07-20 10:30"
     });
+    expect(mapped).not.toHaveProperty("assignee");
   });
 
   it("사진 URL이 없으면 원본 계약을 null과 placeholder로 보존한다", () => {

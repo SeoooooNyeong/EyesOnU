@@ -41,7 +41,7 @@ const flushPromises = async () => {
 };
 
 const casePage = (page) => ({
-  data: [{ id: page + 1, caseNumber: `CASE-${page + 1}`, name: "홍길동", reportedAt: "2026-07-31 11:00", status: "searching", assignee: "미배정" }],
+  data: [{ id: page + 1, caseNumber: `CASE-${page + 1}`, name: "홍길동", reportedAt: "2026-07-31 11:00", status: "searching" }],
   meta: { totalPages: 2, totalElements: 2, page, size: 10 }
 });
 
@@ -80,6 +80,7 @@ describe("DashboardView request states", () => {
     app = createApp(DashboardView);
     app.mount(root);
     await flushPromises();
+    expect(root.textContent).not.toContain("담당자");
 
     const nextButton = root.querySelector(".pagination button:last-child");
     nextButton.click();

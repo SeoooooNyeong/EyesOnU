@@ -545,7 +545,6 @@ onBeforeUnmount(() => {
             <span>신고 시간<strong>{{ item.reportedAt || "—" }}</strong></span>
             <span>마지막 목격<strong>{{ item.lastSeenAt || "—" }}</strong></span>
             <span>목격 위치<strong>{{ item.lastSeenLocation || "—" }}</strong></span>
-            <span>담당자<strong>{{ item.assignee && item.assignee !== "-" ? item.assignee : "미배정" }}</strong></span>
             <span class="info-wide">인상착의<strong>{{ item.appearance || "—" }}</strong></span>
             <span class="info-wide">실종 경위<strong>{{ item.reportContent || "—" }}</strong></span>
             <span v-if="item.closedAt" class="info-wide">종료 일시<strong>{{ item.closedAt }}</strong></span>

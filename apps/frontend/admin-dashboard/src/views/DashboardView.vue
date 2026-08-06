@@ -170,7 +170,7 @@ const changeChartRange = async (range) => {
         <div v-else-if="pageError" class="state-view error" aria-live="polite"><strong>{{ pageError }}</strong><button type="button" @click="changePage">다시 시도</button></div>
         <div v-else class="table-scroll">
           <table class="case-table">
-            <thead><tr><th>사건 번호</th><th>실종자</th><th>신고 시각</th><th>상태</th><th>담당자</th></tr></thead>
+            <thead><tr><th>사건 번호</th><th>실종자</th><th>신고 시각</th><th>상태</th></tr></thead>
             <tbody>
               <tr
                 v-for="item in visibleCases"
@@ -181,7 +181,7 @@ const changeChartRange = async (range) => {
                 @keydown.enter="router.push(`/admin/cases/${item.id}`)"
                 @keydown.space.prevent="router.push(`/admin/cases/${item.id}`)"
               >
-                <td class="mono">{{ item.caseNumber }}</td><td>{{ item.name }}</td><td>{{ item.reportedAt }}</td><td><StatusBadge :status="item.status" /></td><td>{{ item.assignee }}</td>
+                <td class="mono">{{ item.caseNumber }}</td><td>{{ item.name }}</td><td>{{ item.reportedAt }}</td><td><StatusBadge :status="item.status" /></td>
               </tr>
             </tbody>
           </table>
