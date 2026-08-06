@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { fetchAdminCandidate, reviewAdminCandidate } from "../api/candidateApi";
+import { fetchAdminCandidate, fetchAdminCandidates, reviewAdminCandidate } from "../api/candidateApi";
 import {
   candidateSourceLabel,
   candidateSourceTone,
@@ -18,6 +18,8 @@ const loading = ref(true);
 const error = ref("");
 const reviewError = ref("");
 const reviewing = ref(false);
+const nextPendingCandidate = ref(null);
+const nextPendingLoading = ref(false);
 const videoRef = ref(null);
 const videoLoadError = ref(false);
 const clipPlaying = ref(false);
@@ -99,6 +101,39 @@ const handleVideoEnded = () => {
   clipPlaying.value = false;
 };
 
+const loadNextPendingCandidate = async () => {
+  nextPendingLoading.value = true;
+  try {
+    const result = await fetchAdminCandidates({
+      caseId: route.query.caseId || item.value?.caseId || undefined,
+      cameraId: route.query.cameraId || undefined,
+      detectedFrom: route.query.detectedFrom || undefined,
+      detectedTo: route.query.detectedTo || undefined,
+      reviewStatus: "PENDING",
+      page: 0,
+      size: 100,
+      sort: "pendingFirst"
+    });
+    const pendingCandidates = result?.rows || [];
+    const currentIndex = pendingCandidates.findIndex((candidate) => String(candidate.id) === String(route.params.candidateId));
+    nextPendingCandidate.value = currentIndex >= 0
+      ? pendingCandidates[currentIndex + 1] || null
+      : pendingCandidates[0] || null;
+  } catch {
+    nextPendingCandidate.value = null;
+  } finally {
+    nextPendingLoading.value = false;
+  }
+};
+
+const moveToNextPending = () => {
+  if (!nextPendingCandidate.value) return;
+  router.push({
+    path: `/admin/candidates/${nextPendingCandidate.value.id}`,
+    query: route.query
+  });
+};
+
 const submitReview = async () => {
   if (!item.value) return;
   if (confirmationEvidenceTooShort.value) {
@@ -113,6 +148,7 @@ const submitReview = async () => {
       version: item.value.version
     });
     syncReviewForm(item.value);
+    await loadNextPendingCandidate();
   } catch (exception) {
     reviewError.value = exception.message || "후보 판정을 저장하지 못했습니다.";
     if (exception.code === "OPTIMISTIC_LOCK_CONFLICT" || exception.status === 409) {
@@ -133,6 +169,7 @@ onMounted(async () => {
   try {
     item.value = await fetchAdminCandidate(route.params.candidateId);
     syncReviewForm(item.value);
+    await loadNextPendingCandidate();
   } catch (exception) {
     error.value = exception.response?.data?.message || "후보 상세를 불러오지 못했습니다.";
   } finally {
@@ -154,6 +191,9 @@ onMounted(async () => {
             <p class="candidate-subtitle">{{ item.missingName || "이름 미상" }} · {{ item.cameraName || item.cameraCode || "CCTV 미등록" }}</p>
           </div>
           <div class="candidate-header-badges">
+            <button class="primary-button next-pending-button" type="button" :disabled="nextPendingLoading || !nextPendingCandidate" @click="moveToNextPending">
+              {{ nextPendingLoading ? "미판정 후보 확인 중..." : "다음 미판정 후보" }}
+            </button>
             <span :class="['status-badge', candidateSourceTone(item.sourceType)]">출처 · {{ candidateSourceLabel(item.sourceType) }}</span>
             <span :class="['similarity-pill', 'similarity-score', similarityToneClass]">AI 유사도 {{ similarityPercent(item.bestSimilarity) }}%</span>
           </div>
