@@ -234,10 +234,6 @@ onUnmounted(() => {
       </div>
 
       <div class="candidate-display-settings">
-        <div class="candidate-filter-section-heading">
-          <strong>목록 표시</strong>
-          <span>후보를 어떤 순서와 단위로 볼지 설정합니다.</span>
-        </div>
         <div class="candidate-display-controls">
           <label>정렬
             <select v-model="filters.sort">
