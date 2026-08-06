@@ -216,8 +216,10 @@ async function refreshCandidates() {
   if (document.visibilityState === "hidden" || candidateLoading.value || candidateRefreshInFlight) return;
   candidateRefreshInFlight = true;
   try {
-    await loadCandidates({ showLoading: false, preserveOnError: true });
-    await loadRoutePoints({ showLoading: false, preserveOnError: true });
+    await Promise.all([
+      loadCandidates({ showLoading: false, preserveOnError: true }),
+      loadRoutePoints({ showLoading: false, preserveOnError: true })
+    ]);
   } finally {
     candidateRefreshInFlight = false;
   }
@@ -624,7 +626,7 @@ onBeforeUnmount(() => {
           <strong>확인된 동선이 없습니다.</strong>
           <p>후보를 확정하면 해당 카메라 위치가 여기에 표시됩니다.</p>
         </div>
-        <div v-if="routePoints.length > 0" class="case-route-content">
+        <div v-else class="case-route-content">
           <div class="case-route-summary">
             <div>
               <strong>확정 후보 {{ routePoints.length }}건</strong>
