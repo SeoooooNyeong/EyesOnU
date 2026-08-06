@@ -22,7 +22,14 @@ let latestRequestId = 0;
 let activeRequestCount = 0;
 let refreshTimer = null;
 
+const isStreamEnabled = (camera) => ["online", "error"].includes(camera.status);
+
 const reconcileStreams = (cameras) => {
+  const previousStatusById = new Map(
+    streams.value
+      .filter((stream) => !stream.empty)
+      .map((stream) => [String(stream.id), stream.status])
+  );
   const existingById = new Map(streams.value.map((stream) => [stream.id, stream]));
   const nextCameras = cameras.map((camera) => ({
     ...camera,
@@ -43,8 +50,12 @@ const reconcileStreams = (cameras) => {
     if (!activeIds.has(String(streamId))) delete playbackStates.value[streamId];
   });
   cameras.forEach((camera) => {
-    if (camera.streamError) playbackStates.value[camera.id] = "error";
-    else if (!playbackStates.value[camera.id]) playbackStates.value[camera.id] = "loading";
+    const previousStatus = previousStatusById.get(String(camera.id));
+    if (!isStreamEnabled(camera)) playbackStates.value[camera.id] = "offline";
+    else if (camera.streamError) playbackStates.value[camera.id] = "error";
+    else if (!playbackStates.value[camera.id] || previousStatus === "offline") {
+      playbackStates.value[camera.id] = "loading";
+    }
   });
   if (openedInfoId.value !== null && !activeIds.has(String(openedInfoId.value))) {
     openedInfoId.value = null;
@@ -52,6 +63,15 @@ const reconcileStreams = (cameras) => {
 };
 
 const loadPlaybackSource = async (camera) => {
+  if (!isStreamEnabled(camera)) {
+    return {
+      ...camera,
+      url: "",
+      authorization: null,
+      streamError: ""
+    };
+  }
+
   try {
     const response = await getCameraStreamUrl(camera.id);
     return {
@@ -107,11 +127,14 @@ const setPlaybackState = (streamId, state) => {
   playbackStates.value[streamId] = state;
 };
 
-const playbackStateLabel = (streamId) => ({
-  loading: "연결 확인 중",
-  ready: "플레이어 로드됨",
-  error: "재생 오류"
-})[playbackStates.value[streamId]] || "확인 전";
+const playbackStateLabel = (stream) => {
+  if (!isStreamEnabled(stream)) return "연결 없음";
+  return ({
+    loading: "연결 확인 중",
+    ready: "플레이어 로드됨",
+    error: "재생 오류"
+  })[playbackStates.value[stream.id]] || "확인 전";
+};
 
 const updateQuadFullscreenState = () => {
   isQuadFullscreen.value = document.fullscreenElement === gridRef.value;
@@ -167,19 +190,23 @@ onBeforeUnmount(() => {
         <template v-else>
           <div class="live-stream-frame">
             <LiveStreamPlayer
-              v-if="!stream.streamError"
+              v-if="isStreamEnabled(stream) && !stream.streamError"
               :protocol="stream.protocol"
               :url="stream.url"
               :authorization="stream.authorization"
               @info="toggleInfo(stream.id)"
               @state-change="setPlaybackState(stream.id, $event)"
             />
+            <div v-else-if="!isStreamEnabled(stream)" class="stream-loading">
+              연결 없음
+            </div>
             <div v-else class="stream-loading stream-error">
               {{ stream.streamError }}
             </div>
             <div class="stream-label"><strong>{{ stream.cameraName }}</strong></div>
             <div class="stream-playback-state" :class="playbackStates[stream.id]">
-              {{ playbackStateLabel(stream.id) }}
+              <span>{{ playbackStateLabel(stream) }}</span>
+              <span v-if="stream.status === 'error'" class="camera-device-error status-amber-text">· 장치 오류</span>
             </div>
           </div>
 
@@ -197,7 +224,7 @@ onBeforeUnmount(() => {
               <div><dt>Media Server</dt><dd>{{ stream.mediaServerName }} ({{ stream.mediaServerCode }})</dd></div>
               <div><dt>DB 상태</dt><dd :class="['stream-status', stream.status]"><i /> {{ stream.statusCode }}</dd></div>
               <div><dt>마지막 Heartbeat</dt><dd>{{ stream.lastHeartbeat }}</dd></div>
-              <div><dt>재생 상태</dt><dd>{{ playbackStateLabel(stream.id) }}</dd></div>
+              <div><dt>재생 상태</dt><dd>{{ playbackStateLabel(stream) }}</dd></div>
             </dl>
           </aside>
         </template>

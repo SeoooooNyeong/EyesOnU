@@ -120,4 +120,54 @@ describe("LiveStreamPlayer", () => {
     expect(root.querySelector("video").getAttribute("src")).toBeNull();
     expect(root.textContent).toContain("스트림 연결에 실패했습니다.");
   });
+
+  it("renders LIVE only after playing and removes it after a fatal HLS error", async () => {
+    app = createApp(LiveStreamPlayer, {
+      protocol: "HLS",
+      url: "/media-stream/camera-01/index.m3u8"
+    });
+    app.mount(root);
+    await settle();
+
+    expect(root.querySelector(".live-badge")).toBeNull();
+    root.querySelector("video").dispatchEvent(new Event("playing"));
+    await settle();
+    expect(root.querySelector(".live-badge")?.textContent).toContain("LIVE");
+
+    hlsState.instances[0].handlers.error(null, { fatal: true, details: "networkError" });
+    await settle();
+    expect(root.querySelector(".live-badge")).toBeNull();
+    expect(root.textContent).toContain("스트림 연결에 실패했습니다.");
+  });
+
+  it("keeps LIVE hidden when video.play rejects after the manifest loads", async () => {
+    window.HTMLMediaElement.prototype.play.mockRejectedValueOnce(new Error("autoplay blocked"));
+    app = createApp(LiveStreamPlayer, {
+      protocol: "HLS",
+      url: "/media-stream/camera-01/index.m3u8"
+    });
+    app.mount(root);
+    await settle();
+
+    hlsState.instances[0].handlers["manifest-parsed"]();
+    await settle();
+
+    expect(root.querySelector(".live-badge")).toBeNull();
+    expect(root.textContent).toContain("스트림 연결에 실패했습니다.");
+  });
+
+  it("destroys HLS resources when the player is unmounted", async () => {
+    app = createApp(LiveStreamPlayer, {
+      protocol: "HLS",
+      url: "/media-stream/camera-01/index.m3u8"
+    });
+    app.mount(root);
+    await settle();
+    const instance = hlsState.instances[0];
+
+    app.unmount();
+    app = null;
+
+    expect(instance.destroy).toHaveBeenCalledOnce();
+  });
 });
