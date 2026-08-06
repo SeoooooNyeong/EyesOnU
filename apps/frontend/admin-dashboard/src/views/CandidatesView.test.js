@@ -57,11 +57,10 @@ afterEach(() => {
 });
 
 describe("CandidatesView", () => {
-  it("shows queue controls and collapses confirmed candidates by default", async () => {
+  it("collapses confirmed candidates by default", async () => {
     const { root } = await mountView();
 
     expect(root.textContent).toContain("미판정 우선");
-    expect(root.textContent).toContain("다음 미판정 후보");
     expect(root.textContent).toContain("카메라");
     expect(root.textContent).toContain("탐지 시작");
     expect(root.textContent).toContain("확정·제외 후보 1건");
@@ -71,16 +70,6 @@ describe("CandidatesView", () => {
     await flushUi();
 
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(2);
-  });
-
-  it("opens the first pending candidate from the queue action", async () => {
-    const { root, router } = await mountView();
-
-    root.querySelector(".candidate-heading-actions .primary-button").click();
-    await flushUi();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(router.currentRoute.value.path).toBe("/admin/candidates/1");
   });
 
   it("uses the existing green and blue tones for source filters", async () => {

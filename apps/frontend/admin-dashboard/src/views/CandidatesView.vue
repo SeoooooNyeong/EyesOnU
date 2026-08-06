@@ -39,7 +39,6 @@ const pageSize = ref(20);
 const totalPages = ref(1);
 const totalCount = ref(0);
 const resolvedCollapsed = ref(true);
-const nextPendingLoading = ref(false);
 const selectedCase = computed(() => cases.value.find((item) => String(item.id) === String(filters.caseId)));
 const resolvedStatuses = new Set(["CONFIRMED", "REJECTED"]);
 const resolvedRows = computed(() => rows.value.filter((item) => resolvedStatuses.has(String(item.reviewStatus || "").toUpperCase())));
@@ -47,7 +46,6 @@ const shouldCollapseResolved = computed(() => resolvedCollapsed.value && filters
 const displayRows = computed(() => shouldCollapseResolved.value
   ? rows.value.filter((item) => !resolvedStatuses.has(String(item.reviewStatus || "").toUpperCase()))
   : rows.value);
-const pendingRows = computed(() => rows.value.filter((item) => String(item.reviewStatus || "").toUpperCase() === "PENDING"));
 
 const toIso = (value) => {
   if (!value) return undefined;
@@ -136,20 +134,6 @@ const selectCase = (caseItem) => {
   caseDropdownOpen.value = false;
 };
 
-const goToNextPending = async () => {
-  nextPendingLoading.value = true;
-  try {
-    let candidate = pendingRows.value[0];
-    if (!candidate) {
-      const result = await fetchAdminCandidates(listParams({ pageNumber: 0, size: 1, reviewStatus: "PENDING" }));
-      candidate = result.rows?.[0];
-    }
-    if (candidate) openCandidate(candidate);
-  } finally {
-    nextPendingLoading.value = false;
-  }
-};
-
 watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.detectedFrom, filters.detectedTo, filters.sort, pageSize.value], () => {
   if (page.value !== 1) {
     page.value = 1;
@@ -183,9 +167,6 @@ onUnmounted(() => {
         <p>미판정 후보를 우선 확인하고, 유사도와 탐지 시각 기준으로 빠르게 검토합니다.</p>
       </div>
       <div class="candidate-heading-actions">
-        <button class="primary-button" type="button" :disabled="nextPendingLoading" @click="goToNextPending">
-          {{ nextPendingLoading ? "불러오는 중..." : "다음 미판정 후보" }}
-        </button>
         <div class="segmented view-toggle">
           <button :class="{ active: filters.view === 'card' }" title="카드 보기" aria-label="카드 보기" @click="filters.view = 'card'"><LayoutGrid :size="17" /></button>
           <button :class="{ active: filters.view === 'table' }" title="테이블 보기" aria-label="테이블 보기" @click="filters.view = 'table'"><Table2 :size="17" /></button>
