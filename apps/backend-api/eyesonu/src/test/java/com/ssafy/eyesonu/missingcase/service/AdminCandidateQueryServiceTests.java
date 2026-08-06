@@ -2,6 +2,7 @@ package com.ssafy.eyesonu.missingcase.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -48,6 +49,9 @@ class AdminCandidateQueryServiceTests {
         assertEquals("https://storage.example/crop", result.candidates().getFirst().cropUrl());
         assertEquals(CandidateSourceType.REALTIME, result.candidates().getFirst().sourceType());
         verify(signer, never()).createGetUrl("frames/frame.jpg");
+        verify(signer, never()).createGetUrl("cases/1/missing.jpg");
+        verify(signer, never()).createGetUrl("recordings/1.mp4");
+        verify(signer, never()).createGetUrl("clips/1.mp4");
     }
 
     @Test
@@ -73,6 +77,24 @@ class AdminCandidateQueryServiceTests {
         assertFalse(result.toString().contains("crops/crop.jpg"));
         assertFalse(result.toString().contains("frames/detection-frame.jpg"));
         assertFalse(result.toString().contains("crops/detection-crop.jpg"));
+    }
+
+    @Test
+    void doesNotSignBlankOptionalObjectKeys() {
+        AdminCandidateRow row = candidate();
+        row.setMissingPhotoObjectKey(" ");
+        row.setRecordingObjectKey("");
+        row.setClipObjectKey(null);
+        when(mapper.findById(1L)).thenReturn(row);
+        when(mapper.findDetections(1L)).thenReturn(List.of());
+
+        AdminCandidateDetailResponse result = service.findById(1L);
+
+        assertNull(result.missingPhotoUrl());
+        assertNull(result.recordingUrl());
+        assertNull(result.clipUrl());
+        verify(signer, never()).createGetUrl(" ");
+        verify(signer, never()).createGetUrl("");
     }
 
     private void stubSignedUrls() {

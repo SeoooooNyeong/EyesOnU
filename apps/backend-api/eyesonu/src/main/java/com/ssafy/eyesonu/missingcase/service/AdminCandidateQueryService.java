@@ -68,7 +68,7 @@ public class AdminCandidateQueryService {
     }
 
     private String sign(String objectKey) {
-        return objectKey == null ? null : urlSigner.createGetUrl(objectKey);
+        return objectKey == null || objectKey.isBlank() ? null : urlSigner.createGetUrl(objectKey);
     }
 
     private String normalizeStatus(String value) {
