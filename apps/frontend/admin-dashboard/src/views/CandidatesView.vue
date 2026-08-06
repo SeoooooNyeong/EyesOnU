@@ -93,6 +93,20 @@ const loadCameras = async () => {
   cameras.value = result.data || [];
 };
 
+const candidateErrorMessage = (exception) => {
+  const message = String(exception?.message || "");
+  if (message.includes("sort must be one of")) {
+    return "정렬 기준을 불러오지 못했습니다. 서버를 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.";
+  }
+  if (message.includes("detectedFrom must be before detectedTo")) {
+    return "탐지 시작 시간은 종료 시간보다 빨라야 합니다.";
+  }
+  if (message.includes("reviewStatus must be")) {
+    return "판정 상태 필터가 올바르지 않습니다.";
+  }
+  return message || "후보 목록을 불러오지 못했습니다.";
+};
+
 const load = async ({ showLoading = true } = {}) => {
   if (showLoading) loading.value = true;
   error.value = "";
@@ -105,7 +119,7 @@ const load = async ({ showLoading = true } = {}) => {
     rows.value = [];
     totalPages.value = 1;
     totalCount.value = 0;
-    error.value = exception.message || "후보 목록을 불러오지 못했습니다.";
+    error.value = candidateErrorMessage(exception);
   } finally {
     loading.value = false;
   }

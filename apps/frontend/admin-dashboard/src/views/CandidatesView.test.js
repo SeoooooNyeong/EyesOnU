@@ -106,4 +106,14 @@ describe("CandidatesView", () => {
       detectedTo: new Date("2026-08-05T18:00").toISOString()
     }));
   });
+
+  it("translates server validation errors into Korean guidance", async () => {
+    candidateApi.fetchAdminCandidates.mockRejectedValueOnce(new Error(
+      "sort must be one of lastDetectedAt, firstDetectedAt, bestSimilarity, createdAt with asc or desc"
+    ));
+    const { root } = await mountView();
+
+    expect(root.querySelector(".error-message").textContent).toContain("정렬 기준을 불러오지 못했습니다");
+    expect(root.textContent).not.toContain("sort must be one of");
+  });
 });
