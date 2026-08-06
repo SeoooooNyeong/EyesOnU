@@ -227,12 +227,18 @@ onUnmounted(() => {
       </div>
 
       <div class="candidate-date-filter">
-        <label>탐지 시작
-          <input v-model="filters.detectedFrom" type="datetime-local" />
-        </label>
-        <label>탐지 종료
-          <input v-model="filters.detectedTo" type="datetime-local" />
-        </label>
+        <strong class="candidate-date-filter-label">탐지 기간</strong>
+        <div class="candidate-date-range">
+          <label>
+            <span class="visually-hidden">탐지 시작</span>
+            <input v-model="filters.detectedFrom" type="datetime-local" />
+          </label>
+          <span class="candidate-date-range-separator" aria-hidden="true">~</span>
+          <label>
+            <span class="visually-hidden">탐지 종료</span>
+            <input v-model="filters.detectedTo" type="datetime-local" />
+          </label>
+        </div>
         <span class="filter-hint">탐지 기간은 마지막 탐지 시각 기준으로 적용됩니다.</span>
       </div>
     </div>
