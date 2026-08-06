@@ -97,6 +97,24 @@ class AdminCandidateQueryServiceTests {
         verify(signer, never()).createGetUrl("");
     }
 
+    @Test
+    void signsOriginalRecordingWhenClipIsNotReady() {
+        AdminCandidateRow row = candidate();
+        row.setClipObjectKey(null);
+        row.setClipStatus("PENDING");
+        when(mapper.findById(1L)).thenReturn(row);
+        when(mapper.findDetections(1L)).thenReturn(List.of());
+        stubSignedUrls();
+
+        AdminCandidateDetailResponse result = service.findById(1L);
+
+        assertEquals("https://storage.example/recording", result.recordingUrl());
+        assertNull(result.clipUrl());
+        assertEquals("PENDING", result.clipStatus());
+        verify(signer).createGetUrl("recordings/1.mp4");
+        verify(signer, never()).createGetUrl("clips/1.mp4");
+    }
+
     private void stubSignedUrls() {
         when(signer.createGetUrl("frames/frame.jpg")).thenReturn("https://storage.example/frame");
         when(signer.createGetUrl("crops/crop.jpg")).thenReturn("https://storage.example/crop");
