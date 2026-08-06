@@ -220,46 +220,48 @@ onUnmounted(() => {
       </label>
     </div>
 
-    <div class="candidate-source-filter">
-      <div class="candidate-filter-section-heading">
-        <strong>탐지 출처</strong>
-        <span>실시간과 녹화영상 후보를 구분해 조회합니다.</span>
+    <div class="candidate-secondary-filters">
+      <div class="candidate-source-filter">
+        <div class="candidate-filter-section-heading">
+          <strong>탐지 출처</strong>
+          <span>실시간과 녹화영상 후보를 구분해 조회합니다.</span>
+        </div>
+        <div class="candidate-source-options" role="group" aria-label="탐지 출처">
+          <button type="button" :class="['candidate-source-option', { active: filters.source === 'all' }]" :aria-pressed="filters.source === 'all'" @click="filters.source = 'all'">전체</button>
+          <button type="button" :class="['candidate-source-option', 'green', { active: filters.source === 'REALTIME' }]" :aria-pressed="filters.source === 'REALTIME'" @click="filters.source = 'REALTIME'">실시간</button>
+          <button type="button" :class="['candidate-source-option', 'blue', { active: filters.source === 'RECORDING_ANALYSIS' }]" :aria-pressed="filters.source === 'RECORDING_ANALYSIS'" @click="filters.source = 'RECORDING_ANALYSIS'">녹화영상</button>
+        </div>
       </div>
-      <div class="candidate-source-options" role="group" aria-label="탐지 출처">
-        <button type="button" :class="['candidate-source-option', { active: filters.source === 'all' }]" :aria-pressed="filters.source === 'all'" @click="filters.source = 'all'">전체</button>
-        <button type="button" :class="['candidate-source-option', 'green', { active: filters.source === 'REALTIME' }]" :aria-pressed="filters.source === 'REALTIME'" @click="filters.source = 'REALTIME'">실시간</button>
-        <button type="button" :class="['candidate-source-option', 'blue', { active: filters.source === 'RECORDING_ANALYSIS' }]" :aria-pressed="filters.source === 'RECORDING_ANALYSIS'" @click="filters.source = 'RECORDING_ANALYSIS'">녹화영상</button>
-      </div>
-    </div>
 
-    <div class="candidate-display-settings">
-      <div class="candidate-filter-section-heading">
-        <strong>목록 표시</strong>
-        <span>후보를 어떤 순서와 단위로 볼지 설정합니다.</span>
+      <div class="candidate-display-settings">
+        <div class="candidate-filter-section-heading">
+          <strong>목록 표시</strong>
+          <span>후보를 어떤 순서와 단위로 볼지 설정합니다.</span>
+        </div>
+        <div class="candidate-display-controls">
+          <label>정렬
+            <select v-model="filters.sort">
+              <option value="pendingFirst">미판정 우선</option>
+              <option value="realtimeFirst">실시간 우선</option>
+              <option value="bestSimilarity,desc">유사도 높은 순</option>
+              <option value="lastDetectedAt,desc">탐지 최신순</option>
+            </select>
+          </label>
+          <label>한 페이지
+            <select v-model.number="pageSize"><option :value="20">20건</option><option :value="50">50건</option><option :value="100">100건</option></select>
+          </label>
+        </div>
       </div>
-      <div class="candidate-display-controls">
-        <label>정렬
-          <select v-model="filters.sort">
-            <option value="pendingFirst">미판정 우선</option>
-            <option value="realtimeFirst">실시간 우선</option>
-            <option value="bestSimilarity,desc">유사도 높은 순</option>
-            <option value="lastDetectedAt,desc">탐지 최신순</option>
-          </select>
-        </label>
-        <label>한 페이지
-          <select v-model.number="pageSize"><option :value="20">20건</option><option :value="50">50건</option><option :value="100">100건</option></select>
-        </label>
-      </div>
-    </div>
 
-    <div class="candidate-date-filter">
-      <label>탐지 시작
-        <input v-model="filters.detectedFrom" type="datetime-local" />
-      </label>
-      <label>탐지 종료
-        <input v-model="filters.detectedTo" type="datetime-local" />
-      </label>
-      <span class="filter-hint">탐지 기간은 마지막 탐지 시각 기준으로 적용됩니다.</span>
+      <div class="candidate-date-filter">
+        <label>탐지 시작
+          <input v-model="filters.detectedFrom" type="datetime-local" />
+        </label>
+        <label>탐지 종료
+          <input v-model="filters.detectedTo" type="datetime-local" />
+        </label>
+        <span class="filter-hint">탐지 기간은 마지막 탐지 시각 기준으로 적용됩니다.</span>
+      </div>
     </div>
 
     <button v-if="resolvedRows.length" class="resolved-candidates-toggle" type="button" @click="resolvedCollapsed = !resolvedCollapsed">
