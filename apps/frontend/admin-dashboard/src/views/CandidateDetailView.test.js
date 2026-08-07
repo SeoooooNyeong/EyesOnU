@@ -94,6 +94,7 @@ describe("CandidateDetailView", () => {
     expect(root.querySelector('img[alt="홍길동 기준 사진"]').getAttribute("src")).toBe(candidate.missingPhotoUrl);
     expect(root.querySelector('img[alt="AI 후보 크롭 이미지"]').getAttribute("src")).toBe(candidate.cropUrl);
     expect(root.querySelector("video").getAttribute("src")).toBe(candidate.clipUrl);
+    expect(root.querySelector(".candidate-detection-history-table")).not.toBeNull();
     expect(root.querySelector(".candidate-video-review-row").children).toHaveLength(2);
     expect(root.querySelector(".candidate-video-review-row .candidate-review-form")).not.toBeNull();
     expect(root.querySelector(".candidate-kakao-map .mock-route-map")).not.toBeNull();

@@ -301,7 +301,7 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
       <article class="content-panel">
         <div class="section-heading compact-heading"><div><h2>탐지 이력</h2><p>동일 후보로 묶인 이벤트입니다.</p></div></div>
         <div v-if="item.detections?.length" class="table-scroll">
-          <table class="case-table">
+          <table class="case-table candidate-detection-history-table">
             <thead><tr><th>시각</th><th>이벤트</th><th>유사도</th><th>크롭</th></tr></thead>
             <tbody>
               <tr v-for="detection in item.detections" :key="detection.eventId + detection.detectedAt">
@@ -344,6 +344,13 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
 .candidate-map-history-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
 .candidate-map-history-row > .content-panel { margin-bottom: 0; }
 .candidate-kakao-map .route-map { min-height: 330px; }
+.candidate-detection-history-table { min-width: 0; table-layout: fixed; }
+.candidate-detection-history-table th, .candidate-detection-history-table td { padding: 10px 8px; }
+.candidate-detection-history-table th:nth-child(1), .candidate-detection-history-table td:nth-child(1) { width: 28%; }
+.candidate-detection-history-table th:nth-child(2), .candidate-detection-history-table td:nth-child(2) { width: 34%; }
+.candidate-detection-history-table th:nth-child(3), .candidate-detection-history-table td:nth-child(3) { width: 18%; white-space: nowrap; }
+.candidate-detection-history-table th:nth-child(4), .candidate-detection-history-table td:nth-child(4) { width: 20%; white-space: nowrap; }
+.candidate-detection-history-table td { overflow-wrap: anywhere; }
 .candidate-video-wrap { display: grid; gap: 10px; }
 .candidate-video-wrap video { width: 100%; height: auto; max-height: 420px; aspect-ratio: 16 / 9; border-radius: 8px; background: #17202d; }
 .candidate-video-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: #64748b; font-size: 12px; }
