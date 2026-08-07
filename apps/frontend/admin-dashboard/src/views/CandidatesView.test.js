@@ -62,10 +62,16 @@ describe("CandidatesView", () => {
 
     expect(root.textContent).toContain("미판정 우선");
     expect(root.textContent).toContain("카메라");
-    expect(root.textContent).toContain("탐지 시작");
+    expect(root.textContent).not.toContain("탐지 기간");
     expect(root.textContent).toContain("확정·제외 후보 1건");
     expect(root.textContent).not.toContain("track");
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(1);
+
+    root.querySelector(".case-picker-trigger").click();
+    await flushUi();
+    [...root.querySelectorAll(".case-picker-option")].find((option) => option.textContent.includes("CASE-1 · 홍길동")).click();
+    await flushUi();
+    expect(root.querySelector(".case-picker-trigger").textContent).toContain("CASE-1 · 홍길동");
 
     root.querySelector(".resolved-candidates-toggle").click();
     await flushUi();
@@ -81,6 +87,15 @@ describe("CandidatesView", () => {
     expect(toggle).not.toBeNull();
     expect(toggle.disabled).toBe(true);
     expect(root.querySelector(".candidate-list-toolbar")).not.toBeNull();
+  });
+
+  it("keeps cameras available when loading cases fails", async () => {
+    caseApi.listCases.mockRejectedValueOnce(new Error("temporary network error"));
+    cameraApi.listCameras.mockResolvedValueOnce({ data: [{ id: 12, cameraCode: "CAM-12", cameraName: "후문" }] });
+    const { root } = await mountView();
+
+    const cameraOption = [...root.querySelectorAll("select option")].find((option) => option.value === "12");
+    expect(cameraOption.textContent).toContain("CAM-12");
   });
 
   it("uses the existing green and blue tones for source filters", async () => {
@@ -110,7 +125,21 @@ describe("CandidatesView", () => {
     expect(root.querySelector(".case-table tbody tr").classList.contains("review-amber")).toBe(true);
   });
 
-  it("uses the selected camera, date range, and sort in the request", async () => {
+  it("keeps a missing camera code out of the CCTV column", async () => {
+    candidateApi.fetchAdminCandidates.mockResolvedValueOnce({
+      rows: [{ ...rows[0], cameraCode: null, cameraName: "camera01" }],
+      meta: { totalPages: 1, totalElements: 1 }
+    });
+    const { root } = await mountView();
+    root.querySelector('[aria-label="테이블 보기"]').click();
+    await flushUi();
+
+    const cells = root.querySelectorAll(".case-table tbody tr td");
+    expect(cells[2].textContent).toBe("-");
+    expect(cells[3].textContent).toBe("camera01");
+  });
+
+  it("uses the selected camera and sort in the request", async () => {
     const { root } = await mountView();
     const selects = root.querySelectorAll("select");
     const cameraSelect = [...selects].find((select) => select.value === "");
@@ -119,19 +148,31 @@ describe("CandidatesView", () => {
     const sortSelect = [...selects].find((select) => [...select.options].some((option) => option.value === "bestSimilarity,desc"));
     sortSelect.value = "bestSimilarity,desc";
     sortSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    const dates = root.querySelectorAll('input[type="datetime-local"]');
-    dates[0].value = "2026-08-05T17:00";
-    dates[0].dispatchEvent(new Event("input", { bubbles: true }));
-    dates[1].value = "2026-08-05T18:00";
-    dates[1].dispatchEvent(new Event("input", { bubbles: true }));
     await flushUi();
 
     expect(candidateApi.fetchAdminCandidates).toHaveBeenLastCalledWith(expect.objectContaining({
       cameraId: "11",
-      sort: "bestSimilarity,desc",
-      detectedFrom: new Date("2026-08-05T17:00").toISOString(),
-      detectedTo: new Date("2026-08-05T18:00").toISOString()
+      sort: "bestSimilarity,desc"
     }));
+  });
+
+  it("shows only one camera label when the code and name are equivalent", async () => {
+    cameraApi.listCameras.mockResolvedValueOnce({ data: [{ id: 12, cameraCode: "camera-01", cameraName: "camera01" }] });
+    const { root } = await mountView();
+
+    const cameraOption = [...root.querySelectorAll("select option")].find((option) => option.value === "12");
+    expect(cameraOption.textContent).toBe("camera-01");
+  });
+
+  it("closes the case picker when clicking outside it", async () => {
+    const { root } = await mountView();
+    root.querySelector(".case-picker-trigger").click();
+    await flushUi();
+    expect(root.querySelector(".case-picker-menu")).not.toBeNull();
+
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flushUi();
+    expect(root.querySelector(".case-picker-menu")).toBeNull();
   });
 
   it("translates server validation errors into Korean guidance", async () => {
@@ -144,10 +185,4 @@ describe("CandidatesView", () => {
     expect(root.textContent).not.toContain("sort must be one of");
   });
 
-  it("translates an invalid date range into Korean guidance", async () => {
-    candidateApi.fetchAdminCandidates.mockRejectedValueOnce(new Error("detectedFrom must be before detectedTo"));
-    const { root } = await mountView();
-
-    expect(root.querySelector(".error-message").textContent).toContain("탐지 시작 시간은 종료 시간보다 빨라야 합니다");
-  });
 });

@@ -23,8 +23,6 @@ const filters = reactive({
   source: "all",
   review: "all",
   cameraId: "",
-  detectedFrom: "",
-  detectedTo: "",
   sort: "pendingFirst",
   view: "card"
 });
@@ -40,17 +38,27 @@ const totalPages = ref(1);
 const totalCount = ref(0);
 const resolvedCollapsed = ref(true);
 const selectedCase = computed(() => cases.value.find((item) => String(item.id) === String(filters.caseId)));
+const selectedCaseLabel = computed(() => selectedCase.value
+  ? `${selectedCase.value.caseNumber} · ${selectedCase.value.name || "이름 미등록"}`
+  : "전체 사건");
 const resolvedStatuses = new Set(["CONFIRMED", "REJECTED"]);
 const resolvedRows = computed(() => rows.value.filter((item) => resolvedStatuses.has(String(item.reviewStatus || "").toUpperCase())));
 const shouldCollapseResolved = computed(() => resolvedCollapsed.value && filters.review === "all");
 const displayRows = computed(() => shouldCollapseResolved.value
   ? rows.value.filter((item) => !resolvedStatuses.has(String(item.reviewStatus || "").toUpperCase()))
   : rows.value);
-
-const toIso = (value) => {
-  if (!value) return undefined;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+const normalizeCameraLabel = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+const hasDuplicateCameraName = (camera) => {
+  const code = String(camera?.cameraCode || "");
+  const name = String(camera?.cameraName || "");
+  return Boolean(code && name && normalizeCameraLabel(code) === normalizeCameraLabel(name));
+};
+const cameraDisplayLabel = (camera) => {
+  const code = String(camera?.cameraCode || "");
+  const name = String(camera?.cameraName || "");
+  if (!name || name === "-" || hasDuplicateCameraName(camera)) return code || name || "카메라 위치 미등록";
+  if (!code || code === "-") return name;
+  return `${code} · ${name}`;
 };
 
 const listParams = ({ pageNumber = page.value - 1, size = PAGE_SIZE, reviewStatus } = {}) => ({
@@ -58,8 +66,6 @@ const listParams = ({ pageNumber = page.value - 1, size = PAGE_SIZE, reviewStatu
   sourceType: filters.source === "all" ? undefined : filters.source,
   reviewStatus: reviewStatus || (filters.review === "all" ? undefined : filters.review.toUpperCase()),
   cameraId: filters.cameraId || undefined,
-  detectedFrom: toIso(filters.detectedFrom),
-  detectedTo: toIso(filters.detectedTo),
   page: pageNumber,
   size,
   sort: filters.sort
@@ -96,9 +102,6 @@ const candidateErrorMessage = (exception) => {
   if (message.includes("sort must be one of")) {
     return "정렬 기준을 불러오지 못했습니다. 서버를 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.";
   }
-  if (message.includes("detectedFrom must be before detectedTo")) {
-    return "탐지 시작 시간은 종료 시간보다 빨라야 합니다.";
-  }
   if (message.includes("reviewStatus must be")) {
     return "판정 상태 필터가 올바르지 않습니다.";
   }
@@ -133,8 +136,13 @@ const selectCase = (caseItem) => {
   filters.caseId = caseItem?.id ? String(caseItem.id) : "";
   caseDropdownOpen.value = false;
 };
+const handleDocumentClick = (event) => {
+  if (!(event.target instanceof Element) || !event.target.closest(".case-picker")) {
+    caseDropdownOpen.value = false;
+  }
+};
 
-watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.detectedFrom, filters.detectedTo, filters.sort], () => {
+watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.sort], () => {
   if (page.value !== 1) {
     page.value = 1;
     return;
@@ -144,17 +152,14 @@ watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, f
 watch(page, load);
 
 onMounted(async () => {
-  try {
-    await Promise.all([loadCases(), loadCameras()]);
-  } catch {
-    cases.value = [];
-    cameras.value = [];
-  }
+  await Promise.allSettled([loadCases(), loadCameras()]);
+  document.addEventListener("click", handleDocumentClick);
   await load();
   refreshTimer = window.setInterval(refresh, 5000);
 });
 
 onUnmounted(() => {
+  document.removeEventListener("click", handleDocumentClick);
   if (refreshTimer) window.clearInterval(refreshTimer);
 });
 </script>
@@ -171,7 +176,7 @@ onUnmounted(() => {
     <div class="filter-bar candidate-filter-bar">
       <label class="case-select-field">사건
         <div class="case-picker">
-          <button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCase?.caseNumber || "전체 사건" }}</button>
+          <button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCaseLabel }}</button>
           <div v-if="caseDropdownOpen" class="case-picker-menu">
             <button type="button" class="case-picker-option" @click="selectCase()">전체 사건</button>
             <button v-for="caseItem in cases" :key="caseItem.id" type="button" class="case-picker-option" @click="selectCase(caseItem)">{{ caseItem.caseNumber }} · {{ caseItem.name || "이름 미등록" }}</button>
@@ -181,7 +186,7 @@ onUnmounted(() => {
       <label>카메라
         <select v-model="filters.cameraId">
           <option value="">전체 카메라</option>
-          <option v-for="camera in cameras" :key="camera.id" :value="String(camera.id)">{{ camera.cameraCode }}{{ camera.cameraName ? ` · ${camera.cameraName}` : "" }}</option>
+          <option v-for="camera in cameras" :key="camera.id" :value="String(camera.id)">{{ cameraDisplayLabel(camera) }}</option>
         </select>
       </label>
       <label>판정 상태
@@ -200,21 +205,6 @@ onUnmounted(() => {
           <button type="button" :class="['candidate-source-option', 'green', { active: filters.source === 'REALTIME' }]" :aria-pressed="filters.source === 'REALTIME'" @click="filters.source = 'REALTIME'">실시간</button>
           <button type="button" :class="['candidate-source-option', 'blue', { active: filters.source === 'RECORDING_ANALYSIS' }]" :aria-pressed="filters.source === 'RECORDING_ANALYSIS'" @click="filters.source = 'RECORDING_ANALYSIS'">녹화영상</button>
         </div>
-      </div>
-      <div class="candidate-date-filter">
-        <strong class="candidate-date-filter-label">탐지 기간</strong>
-        <div class="candidate-date-range">
-          <label>
-            <span class="visually-hidden">탐지 시작</span>
-            <input v-model="filters.detectedFrom" type="datetime-local" />
-          </label>
-          <span class="candidate-date-range-separator" aria-hidden="true">~</span>
-          <label>
-            <span class="visually-hidden">탐지 종료</span>
-            <input v-model="filters.detectedTo" type="datetime-local" />
-          </label>
-        </div>
-        <span class="filter-hint">탐지 기간은 마지막 탐지 시각 기준으로 적용됩니다.</span>
       </div>
     </div>
 
@@ -260,9 +250,8 @@ onUnmounted(() => {
           <span v-else class="image-placeholder large">이미지 없음</span>
           <div class="candidate-card-content">
             <strong>{{ item.caseNumber }}</strong>
-            <p class="candidate-detection-meta">{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
+            <p class="candidate-detection-meta">{{ cameraDisplayLabel(item) }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
             <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b>
-            <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }}</p>
           </div>
         </button>
       </div>
@@ -273,8 +262,8 @@ onUnmounted(() => {
             <tr v-for="item in displayRows" :key="item.id" :class="`review-${reviewStatusTone(item.reviewStatus)}`">
               <td>{{ item.caseNumber }}</td>
               <td><span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span></td>
-              <td>{{ item.cameraCode }}</td>
-              <td>{{ item.cameraName || "-" }}</td>
+              <td>{{ item.cameraCode || "-" }}</td>
+              <td>{{ hasDuplicateCameraName(item) ? "-" : (item.cameraName || "-") }}</td>
               <td>{{ formatCandidateDate(item.lastDetectedAt) }}</td>
               <td :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</td>
               <td><span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span></td>
