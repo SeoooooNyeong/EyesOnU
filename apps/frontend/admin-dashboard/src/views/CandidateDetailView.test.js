@@ -153,6 +153,22 @@ describe("CandidateDetailView", () => {
     expect(root.querySelector("video").getAttribute("src")).toBe("https://storage.example/recording.mp4");
   });
 
+  it("실시간 후보는 영상 대신 안내 패널을 표시한다", async () => {
+    candidateApi.fetchAdminCandidate.mockResolvedValue({
+      ...candidate,
+      sourceType: "REALTIME",
+      clipUrl: null,
+      recordingUrl: null,
+      clipStatus: null
+    });
+    const { root } = await mountView();
+
+    expect(root.querySelector("video")).toBeNull();
+    expect(root.querySelector(".candidate-video-unavailable")).not.toBeNull();
+    expect(root.textContent).toContain("실시간 후보는 저장된 영상 클립을 제공하지 않습니다.");
+    expect(root.textContent).toContain("탐지 원본 프레임과 CCTV 위치 정보를 확인해 주세요.");
+  });
+
   it("reloads the detail when only the candidate route parameter changes", async () => {
     const nextCandidate = { ...candidate, id: 502, caseNumber: "EFU-20260805-0002" };
     candidateApi.fetchAdminCandidate

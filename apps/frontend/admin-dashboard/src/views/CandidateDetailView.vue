@@ -37,6 +37,7 @@ const confirmationEvidenceTooShort = computed(() => reviewForm.reviewStatus === 
 const videoUrl = computed(() => item.value?.clipUrl || item.value?.recordingUrl || "");
 const hasClip = computed(() => Boolean(item.value?.clipUrl));
 const hasRecordingFallback = computed(() => !hasClip.value && Boolean(item.value?.recordingUrl));
+const isRealtimeCandidate = computed(() => item.value?.sourceType === "REALTIME");
 const clipWindow = computed(() => {
   const detectedAt = Date.parse(item.value?.lastDetectedAt || "");
   const recordingStart = Date.parse(item.value?.recordingStartTime || "");
@@ -248,6 +249,10 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
           </div>
           <p v-if="videoLoadError" class="error-message">영상 URL을 재생할 수 없습니다. 원본 녹화 상태를 확인해 주세요.</p>
         </div>
+        <div v-else-if="isRealtimeCandidate" class="candidate-video-unavailable" role="status">
+          <strong>실시간 후보는 저장된 영상 클립을 제공하지 않습니다.</strong>
+          <p>탐지 원본 프레임과 CCTV 위치 정보를 확인해 주세요.</p>
+        </div>
         <div v-else class="state-view candidate-media-empty">
           <strong>재생 가능한 영상이 없습니다.</strong>
           <p v-if="item.clipStatus && item.clipStatus !== 'READY'">클립 상태: {{ item.clipStatus }} · 생성이 완료되면 이 화면에서 재생할 수 있습니다.</p>
@@ -356,7 +361,11 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
 .form-help-error { margin: -6px 0 0; color: #b42318; font-size: 12px; line-height: 1.5; }
 .candidate-review-form { display: grid; gap: 12px; }
 .candidate-review-form label { display: grid; gap: 6px; color: #64748b; font-size: 12px; font-weight: 700; }
-.candidate-review-form textarea { min-height: 110px; resize: vertical; }
+.candidate-review-form textarea { min-height: 110px; resize: vertical; border: 1px solid oklch(0.85 0.01 250); border-radius: 6px; padding: 8px 12px; color: var(--text-main); background: #fff; font-size: 13px; line-height: 1.5; }
+.candidate-review-form textarea:focus { outline: 0; border-color: #8fb5c5; box-shadow: 0 0 0 3px rgba(143, 181, 197, .18); }
+.candidate-video-unavailable { min-height: 236px; aspect-ratio: 16 / 9; display: grid; place-items: center; align-content: center; gap: 8px; padding: 24px; border-radius: 8px; background: #17202d; color: #fff; text-align: center; }
+.candidate-video-unavailable strong { font-size: 14px; }
+.candidate-video-unavailable p { margin: 0; color: #d7dde8; font-size: 12px; line-height: 1.5; }
 .candidate-back-button { width: 100%; }
 
 @media (max-width: 860px) {
