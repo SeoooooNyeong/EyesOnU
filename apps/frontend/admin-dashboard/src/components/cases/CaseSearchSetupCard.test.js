@@ -184,26 +184,29 @@ describe("CaseSearchSetupCard", () => {
     expect(root.textContent).toContain("탐색 조건을 추가했습니다.");
   });
 
-  it("preserves sub-second time and uses PUT when replacing a condition", async () => {
-    const start = new Date(2026, 7, 3, 9, 20, 59).toISOString();
-    const end = new Date(2026, 7, 3, 13, 20, 57).toISOString();
+  it("truncates existing times to the minute and uses PUT when replacing a condition", async () => {
+    const start = new Date(2026, 7, 3, 9, 20, 59, 733).toISOString();
+    const end = new Date(2026, 7, 3, 13, 20, 57, 731).toISOString();
     const condition = usableCondition({ searchStart: start, searchEnd: end, searchArea: "기존 구역" });
     const { root } = await mountCard({ conditions: [condition] });
 
     buttonByText(root, "수정").click();
     await nextTick();
     const dateInputs = root.querySelectorAll('.condition-form input[type="datetime-local"]');
-    expect(dateInputs[0].value).toMatch(/:59(?:\.000)?$/);
-    expect(dateInputs[1].value).toMatch(/:57(?:\.000)?$/);
-    expect(dateInputs[0].getAttribute("step")).toBe("0.001");
+    expect(dateInputs[0].value).toMatch(/T09:20$/);
+    expect(dateInputs[1].value).toMatch(/T13:20$/);
+    expect(dateInputs[0].getAttribute("step")).toBe("60");
+    expect(dateInputs[1].getAttribute("step")).toBe("60");
     buttonByText(root, "저장").click();
     await flushUi();
 
     expect(caseApi.replaceSearchCondition).toHaveBeenCalledOnce();
     const payload = caseApi.replaceSearchCondition.mock.calls[0][2];
     expect(caseApi.replaceSearchCondition.mock.calls[0].slice(0, 2)).toEqual(["17", 3]);
-    expect(new Date(payload.searchStart).getSeconds()).toBe(59);
-    expect(new Date(payload.searchEnd).getSeconds()).toBe(57);
+    expect(new Date(payload.searchStart).getSeconds()).toBe(0);
+    expect(new Date(payload.searchStart).getMilliseconds()).toBe(0);
+    expect(new Date(payload.searchEnd).getSeconds()).toBe(0);
+    expect(new Date(payload.searchEnd).getMilliseconds()).toBe(0);
   });
 
   it("searches and pages the global camera picker, warns for offline selection, and multi-adds", async () => {

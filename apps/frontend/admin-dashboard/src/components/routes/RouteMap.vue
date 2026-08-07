@@ -93,8 +93,18 @@ function drawRoute() {
     const element = document.createElement("button");
     element.type = "button";
     element.className = "route-coordinate-marker";
-    element.textContent = markerLabel(indices);
-    element.title = `${indices.map((index) => `${index + 1}번`).join(", ")} 관측 지점`;
+    const markerTitle = `${indices.map((index) => `${index + 1}번`).join(", ")} 관측 지점`;
+    element.setAttribute("aria-label", markerTitle);
+    element.title = markerTitle;
+    const markerImage = document.createElement("img");
+    markerImage.src = "/cctv-marker.webp";
+    markerImage.alt = "";
+    markerImage.draggable = false;
+    element.appendChild(markerImage);
+    const markerLabelElement = document.createElement("span");
+    markerLabelElement.className = "route-coordinate-marker-label";
+    markerLabelElement.textContent = markerLabel(indices);
+    element.appendChild(markerLabelElement);
     const clickHandler = () => emit("select", indices[0]);
     element.addEventListener("click", clickHandler);
     const overlay = new kakao.maps.CustomOverlay({

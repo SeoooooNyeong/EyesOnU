@@ -574,7 +574,6 @@ onBeforeUnmount(() => {
           <div>
             <h2>상태 관리</h2>
             <p v-if="isClosed">종료된 사건은 더 이상 상태를 변경할 수 없습니다.</p>
-            <p v-else-if="statusOptions.length">백엔드에서 허용하는 다음 상태만 선택할 수 있습니다.</p>
             <p v-else>현재 상태에서 가능한 일반 상태 전이가 없습니다.</p>
           </div>
           <div v-if="!isClosed" class="status-actions">
@@ -623,7 +622,6 @@ onBeforeUnmount(() => {
         </div>
         <div v-else-if="routePoints.length === 0" class="state-view">
           <strong>확인된 동선이 없습니다.</strong>
-          <p>후보를 확정하면 해당 카메라 위치가 여기에 표시됩니다.</p>
         </div>
         <div v-else class="case-route-content">
           <div class="case-route-summary">
