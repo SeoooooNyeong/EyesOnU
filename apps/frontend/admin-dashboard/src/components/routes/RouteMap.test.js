@@ -127,7 +127,7 @@ describe("RouteMap", () => {
     expect(mapCalls.polylines).toHaveLength(1);
     expect(mapCalls.polylines[0].options.path).toHaveLength(3);
     expect(mapCalls.overlays).toHaveLength(2);
-    expect(mapCalls.overlays[0].options.content.querySelector("img").getAttribute("src")).toBe("/mock/cctv-marker.webp");
+    expect(mapCalls.overlays[0].options.content.querySelector("img").getAttribute("src")).toBe("/cctv-marker.webp");
     expect(mapCalls.overlays[0].options.content.textContent).toBe("");
     expect(mapCalls.bounds[0].positions).toHaveLength(3);
     expect(mapCalls.maps[0].setBounds).toHaveBeenCalled();

@@ -92,7 +92,7 @@ function drawRoute() {
     element.setAttribute("aria-label", markerTitle);
     element.title = markerTitle;
     const markerImage = document.createElement("img");
-    markerImage.src = "/mock/cctv-marker.webp";
+    markerImage.src = "/cctv-marker.webp";
     markerImage.alt = "";
     markerImage.draggable = false;
     element.appendChild(markerImage);
