@@ -429,11 +429,9 @@ onUnmounted(() => {
         <section class="recording-search-filter-panel" aria-labelledby="recording-search-filter-title">
           <div class="recording-search-panel-heading">
             <div>
-              <span class="recording-search-panel-eyebrow">SEARCH FILTER</span>
               <h3 id="recording-search-filter-title">탐색 필터</h3>
               <p>사건·탐색 조건·카메라를 선택해 분석 대상을 좁혀보세요.</p>
             </div>
-            <span class="recording-search-panel-step">1. 조건 선택</span>
           </div>
           <div class="recording-search-filter-fields">
             <div class="filter-bar recording-filter-main">
@@ -466,11 +464,13 @@ onUnmounted(() => {
               <button class="search-button" :disabled="submitting || recordingsLoading || analysisRangeDirty || !selectedCaseIsSearching || !hasValidSearchTimeRange || !selectedCamera || recordings.length === 0" @click="requestSearch">{{ submitting ? `${submissionProgress.processed}/${submissionProgress.total} 요청 중` : "선택 기간 탐색 요청" }}</button>
             </div>
           </div>
-        </section>
         <section v-if="hasValidSearchTimeRange" class="analysis-range-control" aria-labelledby="analysis-range-title">
           <div class="analysis-range-heading">
-            <span id="analysis-range-title">2. 분석 구간 선택</span>
-            <strong class="analysis-range-selection">{{ formatDate(analysisRangeStart) }} ~ {{ formatDate(analysisRangeEnd) }}</strong>
+            <span id="analysis-range-title">분석 구간 선택</span>
+            <div class="analysis-range-selection-group">
+              <strong class="analysis-range-selection">{{ formatDate(analysisRangeStart) }} ~ {{ formatDate(analysisRangeEnd) }}</strong>
+              <span v-if="selectedCamera && hasValidSearchTimeRange" class="analysis-range-count">분석 대상 녹화본 {{ recordings.length }}개</span>
+            </div>
           </div>
           <div class="analysis-range-slider" :class="{ disabled: submitting }">
             <div class="analysis-range-track"><span :style="analysisRangeFillStyle" /></div>
@@ -505,15 +505,14 @@ onUnmounted(() => {
             <span>{{ formatDate(selectedCondition.searchStart) }}</span>
             <span>{{ formatDate(selectedCondition.searchEnd) }}</span>
           </div>
-          <p class="analysis-range-note">선택한 기간과 겹치는 녹화본 전체를 분석합니다.</p>
+          <p v-if="analysisRangeDirty" class="analysis-range-note">핸들을 놓으면 선택한 분석 기간의 녹화본을 조회합니다.</p>
+        </section>
         </section>
         <div class="recording-search-feedback">
           <p v-if="selectedCase && !selectedCaseIsSearching" class="muted-text">{{ SEARCHING_CASE_REQUIRED_MESSAGE }}</p>
           <p v-else-if="selectedCondition && !hasValidSearchTimeRange" class="muted-text">탐색 시작·종료 시간이 필요한 조건입니다.</p>
-          <p v-else-if="analysisRangeDirty" class="muted-text">핸들을 놓으면 선택한 분석 기간의 녹화본을 조회합니다.</p>
           <p v-else-if="recordingsLoading" class="muted-text">탐색 기간과 겹치는 녹화본을 불러오는 중입니다.</p>
           <p v-else-if="selectedCamera && hasValidSearchTimeRange && recordings.length === 0" class="muted-text">선택한 카메라에 분석 기간과 겹치는 녹화본이 없습니다.</p>
-          <p v-else-if="selectedCamera && hasValidSearchTimeRange" class="muted-text">분석 대상 녹화본 {{ recordings.length }}개 · {{ cameraLabel(selectedCamera) }}</p>
           <p v-if="submitting" class="muted-text" role="status" aria-live="polite">{{ submissionProgress.processed }} / {{ submissionProgress.total }}건 처리했습니다.</p>
           <p v-if="batchResult" class="muted-text" role="status">생성 {{ batchResult.created }}건 · 이미 요청됨 {{ batchResult.skipped }}건 · 실패 {{ batchResult.failed }}건</p>
           <div v-if="batchResult?.failures.length" class="form-error" role="alert">
@@ -528,7 +527,6 @@ onUnmounted(() => {
       <section class="recording-job-section" aria-labelledby="recording-job-list-title">
         <div class="job-list-heading">
           <div>
-            <span class="recording-search-panel-eyebrow">ANALYSIS JOBS</span>
             <h3 id="recording-job-list-title">등록된 분석 작업</h3>
             <p>선택한 녹화본의 분석 진행 상태와 결과를 확인합니다.</p>
           </div>
