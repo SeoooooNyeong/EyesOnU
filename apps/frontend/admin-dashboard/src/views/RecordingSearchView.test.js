@@ -182,6 +182,10 @@ describe("RecordingSearchView", () => {
     await settle();
     await selectCase();
 
+    expect(root.querySelector(".recording-search-filter-panel")).not.toBeNull();
+    expect(root.querySelector(".analysis-range-control")).not.toBeNull();
+    expect(root.querySelector(".recording-job-section")).not.toBeNull();
+    expect(root.textContent).not.toContain("탐색 지역");
     expect(listAdminRecordingsMock).not.toHaveBeenCalled();
     expect(root.querySelector(".search-button").disabled).toBe(true);
     expect(root.querySelector(".analysis-range-start").value).toBe("0");

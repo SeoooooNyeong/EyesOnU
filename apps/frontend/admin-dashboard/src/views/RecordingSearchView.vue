@@ -426,42 +426,51 @@ onUnmounted(() => {
       <p v-if="actionError" class="form-error" role="alert">{{ actionError }}</p>
 
       <div class="recording-search-form">
-        <div class="filter-bar recording-filter-main">
-          <label class="case-select-field">사건
-            <div class="case-picker">
-              <button type="button" class="case-picker-trigger" :disabled="submitting" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCase?.caseNumber || "사건 선택" }}</button>
-              <div v-if="caseDropdownOpen" class="case-picker-menu">
-                <button type="button" class="case-picker-option" @click="selectAllCases">사건 선택</button>
-                <button v-for="item in cases" :key="item.id" type="button" class="case-picker-option" @click="selectCase(item)">{{ item.caseNumber }} · {{ item.name }}</button>
-              </div>
+        <section class="recording-search-filter-panel" aria-labelledby="recording-search-filter-title">
+          <div class="recording-search-panel-heading">
+            <div>
+              <h3 id="recording-search-filter-title">탐색 필터</h3>
+              <p>사건·탐색 조건·카메라를 선택해 분석 대상을 좁혀보세요.</p>
             </div>
-          </label>
-          <label>탐색 조건
-            <select v-model="form.conditionId" :disabled="submitting || !form.caseId || !selectedCaseIsSearching" @change="changeCondition">
-              <option value="">조건 선택</option>
-              <option v-for="condition in conditions" :key="condition.id" :value="String(condition.id)">{{ condition.prompt || `조건 ${condition.id}` }}</option>
-            </select>
-          </label>
-          <label>탐색 지역
-            <input :value="selectedCondition?.searchArea || ''" placeholder="탐색 조건에 저장된 지역" readonly />
-          </label>
-        </div>
-        <div class="filter-bar recording-filter-time">
-          <label>조건 전체 기간
-            <input :value="hasValidSearchTimeRange ? `${formatDate(selectedCondition.searchStart)} ~ ${formatDate(selectedCondition.searchEnd)}` : ''" placeholder="탐색 조건의 시작·종료 시간" readonly />
-          </label>
-          <label>카메라
-            <select v-model="form.cameraId" :disabled="submitting || recordingsLoading || !selectedCaseIsSearching || !hasValidSearchTimeRange || caseCameras.length === 0" @change="changeRecordingFilter">
-              <option value="">카메라 선택</option>
-              <option v-for="camera in caseCameras" :key="camera.cameraId" :value="String(camera.cameraId)">{{ cameraLabel(camera) }}</option>
-            </select>
-          </label>
-          <button class="search-button" :disabled="submitting || recordingsLoading || analysisRangeDirty || !selectedCaseIsSearching || !hasValidSearchTimeRange || !selectedCamera || recordings.length === 0" @click="requestSearch">{{ submitting ? `${submissionProgress.processed}/${submissionProgress.total} 요청 중` : "선택 기간 탐색 요청" }}</button>
-        </div>
+          </div>
+          <div class="recording-search-filter-fields">
+            <div class="filter-bar recording-filter-main">
+              <label class="case-select-field">사건
+                <div class="case-picker">
+                  <button type="button" class="case-picker-trigger" :disabled="submitting" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCase?.caseNumber || "사건 선택" }}</button>
+                  <div v-if="caseDropdownOpen" class="case-picker-menu">
+                    <button type="button" class="case-picker-option" @click="selectAllCases">사건 선택</button>
+                    <button v-for="item in cases" :key="item.id" type="button" class="case-picker-option" @click="selectCase(item)">{{ item.caseNumber }} · {{ item.name }}</button>
+                  </div>
+                </div>
+              </label>
+              <label>탐색 조건
+                <select v-model="form.conditionId" :disabled="submitting || !form.caseId || !selectedCaseIsSearching" @change="changeCondition">
+                  <option value="">조건 선택</option>
+                  <option v-for="condition in conditions" :key="condition.id" :value="String(condition.id)">{{ condition.prompt || `조건 ${condition.id}` }}</option>
+                </select>
+              </label>
+            </div>
+            <div class="filter-bar recording-filter-time">
+              <label>조건 전체 기간
+                <input :value="hasValidSearchTimeRange ? `${formatDate(selectedCondition.searchStart)} ~ ${formatDate(selectedCondition.searchEnd)}` : ''" placeholder="탐색 조건의 시작·종료 시간" readonly />
+              </label>
+              <label>카메라
+                <select v-model="form.cameraId" :disabled="submitting || recordingsLoading || !selectedCaseIsSearching || !hasValidSearchTimeRange || caseCameras.length === 0" @change="changeRecordingFilter">
+                  <option value="">카메라 선택</option>
+                  <option v-for="camera in caseCameras" :key="camera.cameraId" :value="String(camera.cameraId)">{{ cameraLabel(camera) }}</option>
+                </select>
+              </label>
+              <button class="search-button" :disabled="submitting || recordingsLoading || analysisRangeDirty || !selectedCaseIsSearching || !hasValidSearchTimeRange || !selectedCamera || recordings.length === 0" @click="requestSearch">{{ submitting ? `${submissionProgress.processed}/${submissionProgress.total} 요청 중` : "선택 기간 탐색 요청" }}</button>
+            </div>
+          </div>
         <section v-if="hasValidSearchTimeRange" class="analysis-range-control" aria-labelledby="analysis-range-title">
           <div class="analysis-range-heading">
-            <span id="analysis-range-title">분석 기간</span>
-            <strong class="analysis-range-selection">{{ formatDate(analysisRangeStart) }} ~ {{ formatDate(analysisRangeEnd) }}</strong>
+            <span id="analysis-range-title">분석 구간 선택</span>
+            <div class="analysis-range-selection-group">
+              <strong class="analysis-range-selection">{{ formatDate(analysisRangeStart) }} ~ {{ formatDate(analysisRangeEnd) }}</strong>
+              <span v-if="selectedCamera && hasValidSearchTimeRange" class="analysis-range-count">분석 대상 녹화본 {{ recordings.length }}개</span>
+            </div>
           </div>
           <div class="analysis-range-slider" :class="{ disabled: submitting }">
             <div class="analysis-range-track"><span :style="analysisRangeFillStyle" /></div>
@@ -496,38 +505,48 @@ onUnmounted(() => {
             <span>{{ formatDate(selectedCondition.searchStart) }}</span>
             <span>{{ formatDate(selectedCondition.searchEnd) }}</span>
           </div>
-          <p class="analysis-range-note">선택한 기간과 겹치는 녹화본 전체를 분석합니다.</p>
+          <p v-if="analysisRangeDirty" class="analysis-range-note">핸들을 놓으면 선택한 분석 기간의 녹화본을 조회합니다.</p>
         </section>
-        <p v-if="selectedCase && !selectedCaseIsSearching" class="muted-text">{{ SEARCHING_CASE_REQUIRED_MESSAGE }}</p>
-        <p v-else-if="selectedCondition && !hasValidSearchTimeRange" class="muted-text">탐색 시작·종료 시간이 필요한 조건입니다.</p>
-        <p v-else-if="analysisRangeDirty" class="muted-text">핸들을 놓으면 선택한 분석 기간의 녹화본을 조회합니다.</p>
-        <p v-else-if="recordingsLoading" class="muted-text">탐색 기간과 겹치는 녹화본을 불러오는 중입니다.</p>
-        <p v-else-if="selectedCamera && hasValidSearchTimeRange && recordings.length === 0" class="muted-text">선택한 카메라에 분석 기간과 겹치는 녹화본이 없습니다.</p>
-        <p v-else-if="selectedCamera && hasValidSearchTimeRange" class="muted-text">분석 대상 녹화본 {{ recordings.length }}개 · {{ cameraLabel(selectedCamera) }}</p>
-        <p v-if="submitting" class="muted-text" role="status" aria-live="polite">{{ submissionProgress.processed }} / {{ submissionProgress.total }}건 처리했습니다.</p>
-        <p v-if="batchResult" class="muted-text" role="status">생성 {{ batchResult.created }}건 · 이미 요청됨 {{ batchResult.skipped }}건 · 실패 {{ batchResult.failed }}건</p>
-        <div v-if="batchResult?.failures.length" class="form-error" role="alert">
-          <strong>실패한 녹화본</strong>
-          <ul>
-            <li v-for="failure in batchResult.failures" :key="failure.recordingId">녹화 ID {{ failure.recordingId }}: {{ failure.message }}</li>
-          </ul>
+        </section>
+        <div class="recording-search-feedback">
+          <p v-if="selectedCase && !selectedCaseIsSearching" class="muted-text">{{ SEARCHING_CASE_REQUIRED_MESSAGE }}</p>
+          <p v-else-if="selectedCondition && !hasValidSearchTimeRange" class="muted-text">탐색 시작·종료 시간이 필요한 조건입니다.</p>
+          <p v-else-if="recordingsLoading" class="muted-text">탐색 기간과 겹치는 녹화본을 불러오는 중입니다.</p>
+          <p v-else-if="selectedCamera && hasValidSearchTimeRange && recordings.length === 0" class="muted-text">선택한 카메라에 분석 기간과 겹치는 녹화본이 없습니다.</p>
+          <p v-if="submitting" class="muted-text" role="status" aria-live="polite">{{ submissionProgress.processed }} / {{ submissionProgress.total }}건 처리했습니다.</p>
+          <p v-if="batchResult" class="muted-text" role="status">생성 {{ batchResult.created }}건 · 이미 요청됨 {{ batchResult.skipped }}건 · 실패 {{ batchResult.failed }}건</p>
+          <div v-if="batchResult?.failures.length" class="form-error" role="alert">
+            <strong>실패한 녹화본</strong>
+            <ul>
+              <li v-for="failure in (batchResult?.failures || [])" :key="failure.recordingId">녹화 ID {{ failure.recordingId }}: {{ failure.message }}</li>
+            </ul>
+          </div>
         </div>
       </div>
 
-      <div class="job-list">
-        <p v-if="visibleJobs.length === 0" class="empty-state">등록된 녹화 분석 작업이 없습니다.</p>
-        <article v-for="job in visibleJobs" :key="job.jobId" class="job-card">
-          <div class="job-card-head"><strong>JOB-{{ job.jobId }}</strong><StatusBadge :status="jobStatus(job.status)" /></div>
-          <div class="job-meta-grid">
-            <span><small>사건 번호</small><strong>{{ cases.find((item) => String(item.id) === String(job.caseId))?.caseNumber || job.caseId }}</strong></span>
-            <span><small>녹화 ID</small><strong>{{ job.recordingId }}</strong></span>
-            <span><small>요청 시각</small><strong>{{ formatDate(job.requestedAt) }}</strong></span>
+      <section class="recording-job-section" aria-labelledby="recording-job-list-title">
+        <div class="job-list-heading">
+          <div>
+            <h3 id="recording-job-list-title">등록된 분석 작업</h3>
+            <p>선택한 녹화본의 분석 진행 상태와 결과를 확인합니다.</p>
           </div>
-          <div class="progress" :class="`progress-${jobStatus(job.status)}`"><span :style="{ width: `${jobProgress(job.status)}%` }" /></div>
-          <div class="job-progress-meta"><span><strong>{{ jobProgress(job.status) }}%</strong> 완료</span><span>상태 <strong>{{ job.status }}</strong></span></div>
-          <div class="job-card-actions"><button v-if="job.status === 'SUCCEEDED'" class="primary-button" @click="openCandidateReview(job)">후보 검토</button><button v-if="['QUEUED', 'RUNNING'].includes(job.status)" class="ghost-button" @click="cancelJob(job)">취소</button><button v-if="job.status === 'FAILED'" class="reset-button" :disabled="!isSearchingCase(job.caseId)" :title="isSearchingCase(job.caseId) ? undefined : SEARCHING_CASE_REQUIRED_MESSAGE" @click="retryJob(job)">재시도</button></div>
-        </article>
-      </div>
+          <span class="job-list-count">{{ visibleJobs.length }}건</span>
+        </div>
+        <div class="job-list">
+          <p v-if="visibleJobs.length === 0" class="empty-state">등록된 녹화 분석 작업이 없습니다.</p>
+          <article v-for="job in visibleJobs" :key="job.jobId" class="job-card">
+            <div class="job-card-head"><strong>JOB-{{ job.jobId }}</strong><StatusBadge :status="jobStatus(job.status)" /></div>
+            <div class="job-meta-grid">
+              <span><small>사건 번호</small><strong>{{ cases.find((item) => String(item.id) === String(job.caseId))?.caseNumber || job.caseId }}</strong></span>
+              <span><small>녹화 ID</small><strong>{{ job.recordingId }}</strong></span>
+              <span><small>요청 시각</small><strong>{{ formatDate(job.requestedAt) }}</strong></span>
+            </div>
+            <div class="progress" :class="`progress-${jobStatus(job.status)}`"><span :style="{ width: `${jobProgress(job.status)}%` }" /></div>
+            <div class="job-progress-meta"><span><strong>{{ jobProgress(job.status) }}%</strong> 완료</span><span>상태 <strong>{{ job.status }}</strong></span></div>
+            <div class="job-card-actions"><button v-if="job.status === 'SUCCEEDED'" class="primary-button" @click="openCandidateReview(job)">후보 검토</button><button v-if="['QUEUED', 'RUNNING'].includes(job.status)" class="ghost-button" @click="cancelJob(job)">취소</button><button v-if="job.status === 'FAILED'" class="reset-button" :disabled="!isSearchingCase(job.caseId)" :title="isSearchingCase(job.caseId) ? undefined : SEARCHING_CASE_REQUIRED_MESSAGE" @click="retryJob(job)">재시도</button></div>
+          </article>
+        </div>
+      </section>
     </StateBlock>
   </section>
 </template>

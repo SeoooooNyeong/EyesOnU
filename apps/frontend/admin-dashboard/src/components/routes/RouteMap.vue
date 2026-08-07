@@ -48,11 +48,6 @@ function groupedPoints(points) {
   return [...groups.values()];
 }
 
-function markerLabel(indices) {
-  const sequences = indices.map((index) => index + 1);
-  return sequences.length <= 3 ? sequences.join("·") : `${sequences[0]} +${sequences.length - 1}`;
-}
-
 function updateActiveMarker() {
   overlays.forEach(({ element, indices }) => {
     element.classList.toggle("active", indices.includes(props.activeIndex));
@@ -101,10 +96,6 @@ function drawRoute() {
     markerImage.alt = "";
     markerImage.draggable = false;
     element.appendChild(markerImage);
-    const markerLabelElement = document.createElement("span");
-    markerLabelElement.className = "route-coordinate-marker-label";
-    markerLabelElement.textContent = markerLabel(indices);
-    element.appendChild(markerLabelElement);
     const clickHandler = () => emit("select", indices[0]);
     element.addEventListener("click", clickHandler);
     const overlay = new kakao.maps.CustomOverlay({
