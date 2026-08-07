@@ -442,9 +442,6 @@ onUnmounted(() => {
               <option v-for="condition in conditions" :key="condition.id" :value="String(condition.id)">{{ condition.prompt || `조건 ${condition.id}` }}</option>
             </select>
           </label>
-          <label>탐색 지역
-            <input :value="selectedCondition?.searchArea || ''" placeholder="탐색 조건에 저장된 지역" readonly />
-          </label>
         </div>
         <div class="filter-bar recording-filter-time">
           <label>조건 전체 기간

@@ -182,6 +182,7 @@ describe("RecordingSearchView", () => {
     await settle();
     await selectCase();
 
+    expect(root.textContent).not.toContain("탐색 지역");
     expect(listAdminRecordingsMock).not.toHaveBeenCalled();
     expect(root.querySelector(".search-button").disabled).toBe(true);
     expect(root.querySelector(".analysis-range-start").value).toBe("0");
