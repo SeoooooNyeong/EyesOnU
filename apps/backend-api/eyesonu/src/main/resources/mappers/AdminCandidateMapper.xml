@@ -101,14 +101,27 @@
         <include refid="candidateListSelect"/>
         <include refid="filters"/>
         ORDER BY
-        CASE WHEN c.source_type = 'REALTIME' THEN 0 ELSE 1 END ASC,
         <choose>
-            <when test="sortField == 'bestSimilarity'">c.best_similarity</when>
-            <when test="sortField == 'firstDetectedAt'">c.first_detected_at</when>
-            <when test="sortField == 'createdAt'">c.created_at</when>
-            <otherwise>c.last_detected_at</otherwise>
-        </choose>
-        <choose><when test="sortDirection == 'asc'">ASC</when><otherwise>DESC</otherwise></choose>, c.id DESC
+            <when test="sortField == 'pendingFirst'">
+                CASE WHEN c.review_status = 'PENDING' THEN 0 ELSE 1 END ASC,
+                CASE WHEN c.source_type = 'REALTIME' THEN 0 ELSE 1 END ASC,
+                c.last_detected_at DESC
+            </when>
+            <when test="sortField == 'realtimeFirst'">
+                CASE WHEN c.source_type = 'REALTIME' THEN 0 ELSE 1 END ASC,
+                CASE WHEN c.review_status = 'PENDING' THEN 0 ELSE 1 END ASC,
+                c.last_detected_at DESC
+            </when>
+            <otherwise>
+                <choose>
+                    <when test="sortField == 'bestSimilarity'">c.best_similarity</when>
+                    <when test="sortField == 'firstDetectedAt'">c.first_detected_at</when>
+                    <when test="sortField == 'createdAt'">c.created_at</when>
+                    <otherwise>c.last_detected_at</otherwise>
+                </choose>
+                <choose><when test="sortDirection == 'asc'">ASC</when><otherwise>DESC</otherwise></choose>
+            </otherwise>
+        </choose>, c.id DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>
     <select id="findById" resultMap="candidateMap">

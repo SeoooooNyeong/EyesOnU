@@ -201,7 +201,7 @@ class MySqlPersistenceIntegrationTests {
 				"track-1", "2026-08-03 10:00:00");
 
 		List<AdminCandidateRow> rows = adminCandidateMapper.findPage(
-				caseId, cameraId, null, null, null, null, "lastDetectedAt", "desc", 20, 0);
+				caseId, cameraId, null, null, null, null, "realtimeFirst", "asc", 20, 0);
 
 		assertEquals(2, rows.size());
 		assertEquals(CandidateSourceType.REALTIME, rows.getFirst().getSourceType());
