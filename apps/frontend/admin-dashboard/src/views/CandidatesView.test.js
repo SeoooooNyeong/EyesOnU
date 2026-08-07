@@ -62,6 +62,7 @@ describe("CandidatesView", () => {
 
     expect(root.textContent).toContain("미판정 우선");
     expect(root.textContent).toContain("카메라");
+    expect(root.textContent).toContain("탐지 시작");
     expect(root.textContent).toContain("확정·제외 후보 1건");
     expect(root.textContent).not.toContain("track");
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(1);
@@ -109,7 +110,7 @@ describe("CandidatesView", () => {
     expect(root.querySelector(".case-table tbody tr").classList.contains("review-amber")).toBe(true);
   });
 
-  it("uses the selected camera and sort in the request", async () => {
+  it("uses the selected camera, date range, and sort in the request", async () => {
     const { root } = await mountView();
     const selects = root.querySelectorAll("select");
     const cameraSelect = [...selects].find((select) => select.value === "");
@@ -118,11 +119,18 @@ describe("CandidatesView", () => {
     const sortSelect = [...selects].find((select) => [...select.options].some((option) => option.value === "bestSimilarity,desc"));
     sortSelect.value = "bestSimilarity,desc";
     sortSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    const dates = root.querySelectorAll('input[type="datetime-local"]');
+    dates[0].value = "2026-08-05T17:00";
+    dates[0].dispatchEvent(new Event("input", { bubbles: true }));
+    dates[1].value = "2026-08-05T18:00";
+    dates[1].dispatchEvent(new Event("input", { bubbles: true }));
     await flushUi();
 
     expect(candidateApi.fetchAdminCandidates).toHaveBeenLastCalledWith(expect.objectContaining({
       cameraId: "11",
-      sort: "bestSimilarity,desc"
+      sort: "bestSimilarity,desc",
+      detectedFrom: new Date("2026-08-05T17:00").toISOString(),
+      detectedTo: new Date("2026-08-05T18:00").toISOString()
     }));
   });
 
@@ -134,5 +142,12 @@ describe("CandidatesView", () => {
 
     expect(root.querySelector(".error-message").textContent).toContain("정렬 기준을 불러오지 못했습니다");
     expect(root.textContent).not.toContain("sort must be one of");
+  });
+
+  it("translates an invalid date range into Korean guidance", async () => {
+    candidateApi.fetchAdminCandidates.mockRejectedValueOnce(new Error("detectedFrom must be before detectedTo"));
+    const { root } = await mountView();
+
+    expect(root.querySelector(".error-message").textContent).toContain("탐지 시작 시간은 종료 시간보다 빨라야 합니다");
   });
 });
