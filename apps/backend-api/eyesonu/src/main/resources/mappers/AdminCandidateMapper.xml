@@ -103,13 +103,13 @@
         ORDER BY
         <choose>
             <when test="sortField == 'pendingFirst'">
-                c.review_priority ASC,
-                c.source_priority ASC,
+                CASE WHEN c.review_status = 'PENDING' THEN 0 ELSE 1 END ASC,
+                CASE WHEN c.source_type = 'REALTIME' THEN 0 ELSE 1 END ASC,
                 c.last_detected_at DESC
             </when>
             <when test="sortField == 'realtimeFirst'">
-                c.source_priority ASC,
-                c.review_priority ASC,
+                CASE WHEN c.source_type = 'REALTIME' THEN 0 ELSE 1 END ASC,
+                CASE WHEN c.review_status = 'PENDING' THEN 0 ELSE 1 END ASC,
                 c.last_detected_at DESC
             </when>
             <otherwise>
