@@ -1,7 +1,8 @@
 <script setup>
 import { computed, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { fetchAdminCandidate, fetchAdminCandidates, reviewAdminCandidate } from "../api/candidateApi";
+import { fetchAdminCandidate, reviewAdminCandidate } from "../api/candidateApi";
+import RouteMap from "../components/routes/RouteMap.vue";
 import {
   candidateSourceLabel,
   candidateSourceTone,
@@ -18,8 +19,6 @@ const loading = ref(true);
 const error = ref("");
 const reviewError = ref("");
 const reviewing = ref(false);
-const nextPendingCandidate = ref(null);
-const nextPendingLoading = ref(false);
 const videoRef = ref(null);
 const videoLoadError = ref(false);
 const clipPlaying = ref(false);
@@ -56,12 +55,16 @@ const clipWindowLabel = computed(() => {
   if (!clipWindow.value) return "탐지 전후 20초 구간";
   return `탐지 전후 구간 · ${Math.round(clipWindow.value.start)}~${Math.round(clipWindow.value.end)}초`;
 });
-const mapEmbedUrl = computed(() => {
+const cameraMapPoints = computed(() => {
   const latitude = Number(item.value?.cameraLatitude);
   const longitude = Number(item.value?.cameraLongitude);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return "";
-  const padding = 0.0015;
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${longitude - padding}%2C${latitude - padding}%2C${longitude + padding}%2C${latitude + padding}&layer=mapnik&marker=${latitude}%2C${longitude}`;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
+  return [{
+    latitude,
+    longitude,
+    cameraName: item.value?.cameraName,
+    cameraCode: item.value?.cameraCode
+  }];
 });
 const externalMapUrl = computed(() => {
   const latitude = Number(item.value?.cameraLatitude);
@@ -102,40 +105,6 @@ const handleVideoEnded = () => {
   clipPlaying.value = false;
 };
 
-const loadNextPendingCandidate = async (requestId = candidateLoadId) => {
-  nextPendingLoading.value = true;
-  try {
-    const result = await fetchAdminCandidates({
-      caseId: route.query.caseId || item.value?.caseId || undefined,
-      cameraId: route.query.cameraId || undefined,
-      detectedFrom: route.query.detectedFrom || undefined,
-      detectedTo: route.query.detectedTo || undefined,
-      reviewStatus: "PENDING",
-      page: 0,
-      size: 100,
-      sort: "pendingFirst"
-    });
-    if (requestId !== candidateLoadId) return;
-    const pendingCandidates = result?.rows || [];
-    const currentIndex = pendingCandidates.findIndex((candidate) => String(candidate.id) === String(route.params.candidateId));
-    nextPendingCandidate.value = currentIndex >= 0
-      ? pendingCandidates[currentIndex + 1] || null
-      : pendingCandidates[0] || null;
-  } catch {
-    if (requestId === candidateLoadId) nextPendingCandidate.value = null;
-  } finally {
-    if (requestId === candidateLoadId) nextPendingLoading.value = false;
-  }
-};
-
-const moveToNextPending = () => {
-  if (!nextPendingCandidate.value) return;
-  router.push({
-    path: `/admin/candidates/${nextPendingCandidate.value.id}`,
-    query: route.query
-  });
-};
-
 const submitReview = async () => {
   if (!item.value) return;
   if (confirmationEvidenceTooShort.value) {
@@ -150,7 +119,6 @@ const submitReview = async () => {
       version: item.value.version
     });
     syncReviewForm(item.value);
-    await loadNextPendingCandidate();
   } catch (exception) {
     reviewError.value = exception.message || "후보 판정을 저장하지 못했습니다.";
     if (exception.code === "OPTIMISTIC_LOCK_CONFLICT" || exception.status === 409) {
@@ -173,15 +141,12 @@ const loadCandidate = async (candidateId) => {
   error.value = "";
   reviewError.value = "";
   item.value = null;
-  nextPendingCandidate.value = null;
-  nextPendingLoading.value = false;
   resetVideoState();
   try {
     const candidate = await fetchAdminCandidate(candidateId);
     if (requestId !== candidateLoadId) return;
     item.value = candidate;
     syncReviewForm(item.value);
-    await loadNextPendingCandidate(requestId);
   } catch (exception) {
     if (requestId !== candidateLoadId) return;
     error.value = exception.response?.data?.message || "후보 상세를 불러오지 못했습니다.";
@@ -206,10 +171,7 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
             <p class="candidate-subtitle">{{ item.missingName || "이름 미상" }} · {{ item.cameraName || item.cameraCode || "CCTV 미등록" }}</p>
           </div>
           <div class="candidate-header-badges">
-            <button class="primary-button next-pending-button" type="button" :disabled="nextPendingLoading || !nextPendingCandidate" @click="moveToNextPending">
-              {{ nextPendingLoading ? "미판정 후보 확인 중..." : "다음 미판정 후보" }}
-            </button>
-            <span :class="['status-badge', candidateSourceTone(item.sourceType)]">출처 · {{ candidateSourceLabel(item.sourceType) }}</span>
+            <span :class="['status-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
             <span :class="['similarity-pill', 'similarity-score', similarityToneClass]">AI 유사도 {{ similarityPercent(item.bestSimilarity) }}%</span>
           </div>
         </div>
@@ -234,21 +196,31 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
               <span v-else class="image-placeholder large">후보 이미지 없음</span>
             </div>
           </div>
+          <article class="content-panel candidate-info-panel">
+            <h2>후보 정보</h2>
+            <div class="candidate-info-list">
+              <span><small>탐지 출처</small><strong>{{ candidateSourceLabel(item.sourceType) }}</strong></span>
+              <span><small>카메라</small><strong>{{ item.cameraCode || "-" }}</strong></span>
+              <span><small>Track ID</small><strong>{{ item.trackId || "-" }}</strong></span>
+              <span><small>최초 탐지</small><strong>{{ formatCandidateDate(item.firstDetectedAt) }}</strong></span>
+              <span><small>최근 탐지</small><strong>{{ formatCandidateDate(item.lastDetectedAt) }}</strong></span>
+              <span><small>탐지 횟수</small><strong>{{ item.detectionCount ?? "-" }}</strong></span>
+              <span><small>평균 유사도</small><strong>{{ similarityPercent(item.averageSimilarity) }}%</strong></span>
+              <span><small>판정 상태</small><strong>{{ reviewStatusLabel(item.reviewStatus) }}</strong></span>
+            </div>
+          </article>
         </div>
         <div class="source-frame-block">
           <div>
             <span class="review-label">탐지 원본 프레임</span>
             <p>후보가 포함된 전체 화면을 함께 확인하세요.</p>
           </div>
-          <a v-if="item.frameUrl" :href="item.frameUrl" target="_blank" rel="noopener noreferrer" class="ghost-button">원본 프레임 크게 보기</a>
-          <div class="review-image source-frame-image">
-            <img v-if="item.frameUrl" :src="item.frameUrl" alt="탐지 원본 프레임" />
-            <span v-else class="image-placeholder large">원본 프레임 없음</span>
-          </div>
+          <a v-if="item.frameUrl" :href="item.frameUrl" target="_blank" rel="noopener noreferrer" class="ghost-button">원본 프레임 보기</a>
         </div>
       </article>
 
-      <article class="content-panel candidate-video-panel">
+      <div class="candidate-video-review-row">
+        <article class="content-panel candidate-video-panel">
         <div class="section-heading">
           <div>
             <h2>탐지 전후 영상 클립</h2>
@@ -281,8 +253,28 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
           <p v-if="item.clipStatus && item.clipStatus !== 'READY'">클립 상태: {{ item.clipStatus }} · 생성이 완료되면 이 화면에서 재생할 수 있습니다.</p>
           <p v-else>실시간 후보는 저장된 녹화 영상이 없을 수 있습니다. 탐지 프레임과 위치 정보를 기준으로 검토해 주세요.</p>
         </div>
-      </article>
+        </article>
 
+        <form class="content-panel candidate-review-form" @submit.prevent="submitReview">
+          <h2>관제자 판정</h2>
+          <p class="review-form-help">판정 결과와 근거를 남겨야 다음 담당자가 같은 근거를 확인할 수 있습니다.</p>
+          <label>판정 상태
+            <select v-model="reviewForm.reviewStatus">
+              <option value="KEPT">후보 유지</option>
+              <option value="CONFIRMED">대상 확인</option>
+              <option value="REJECTED">대상 아님</option>
+            </select>
+          </label>
+          <label>판정 근거
+            <textarea v-model="reviewForm.reviewComment" maxlength="2000" rows="5" placeholder="사진·영상·위치·시각을 확인한 근거를 입력하세요." />
+          </label>
+          <p v-if="confirmationEvidenceTooShort" class="form-help-error">대상 확인 시 판정 근거를 10자 이상 입력해 주세요.</p>
+          <p v-if="reviewError" class="error-message">{{ reviewError }}</p>
+          <button class="primary-button" type="submit" :disabled="reviewing || confirmationEvidenceTooShort">{{ reviewing ? "저장 중..." : "판정 저장" }}</button>
+        </form>
+      </div>
+
+      <div class="candidate-map-history-row">
       <article class="content-panel candidate-map-panel">
         <div class="section-heading">
           <div>
@@ -291,33 +283,13 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
           </div>
           <a v-if="externalMapUrl" :href="externalMapUrl" target="_blank" rel="noopener noreferrer" class="ghost-button">카카오맵에서 열기</a>
         </div>
-        <div v-if="mapEmbedUrl" class="candidate-map-frame">
-          <iframe :src="mapEmbedUrl" title="탐지 CCTV 위치 지도" loading="lazy" />
-        </div>
-        <div v-else class="state-view">
-          <strong>CCTV 좌표가 등록되지 않았습니다.</strong>
-          <p>주소: {{ item.cameraAddress || "—" }}</p>
+        <div class="candidate-kakao-map">
+          <RouteMap :points="cameraMapPoints" />
         </div>
         <div class="camera-coordinate-row">
           <span><small>위도</small><strong>{{ item.cameraLatitude ?? "—" }}</strong></span>
           <span><small>경도</small><strong>{{ item.cameraLongitude ?? "—" }}</strong></span>
           <span><small>탐지 시각</small><strong>{{ formatCandidateDate(item.lastDetectedAt) }}</strong></span>
-        </div>
-      </article>
-    </main>
-
-    <aside class="candidate-side-stack">
-      <article class="content-panel candidate-info-panel">
-        <h2>후보 정보</h2>
-        <div class="candidate-info-list">
-          <span><small>탐지 출처</small><strong>{{ candidateSourceLabel(item.sourceType) }}</strong></span>
-          <span><small>카메라</small><strong>{{ item.cameraCode || "—" }}</strong></span>
-          <span><small>Track ID</small><strong>{{ item.trackId || "—" }}</strong></span>
-          <span><small>최초 탐지</small><strong>{{ formatCandidateDate(item.firstDetectedAt) }}</strong></span>
-          <span><small>최근 탐지</small><strong>{{ formatCandidateDate(item.lastDetectedAt) }}</strong></span>
-          <span><small>탐지 횟수</small><strong>{{ item.detectionCount ?? "—" }}</strong></span>
-          <span><small>평균 유사도</small><strong>{{ similarityPercent(item.averageSimilarity) }}%</strong></span>
-          <span><small>판정 상태</small><strong>{{ reviewStatusLabel(item.reviewStatus) }}</strong></span>
         </div>
       </article>
 
@@ -339,52 +311,39 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
         <p v-else class="empty-state">탐지 이력이 없습니다.</p>
       </article>
 
-      <form class="content-panel candidate-review-form" @submit.prevent="submitReview">
-        <h2>관제자 판정</h2>
-        <p class="review-form-help">판정 결과와 근거를 남겨야 다음 담당자가 같은 근거를 확인할 수 있습니다.</p>
-        <label>판정 상태
-          <select v-model="reviewForm.reviewStatus">
-            <option value="KEPT">후보 유지</option>
-            <option value="CONFIRMED">대상 확인</option>
-            <option value="REJECTED">대상 아님</option>
-          </select>
-        </label>
-        <label>판정 근거
-          <textarea v-model="reviewForm.reviewComment" maxlength="2000" rows="5" placeholder="사진·영상·위치·시각을 확인한 근거를 입력하세요." />
-        </label>
-        <p v-if="confirmationEvidenceTooShort" class="form-help-error">대상 확인 시 판정 근거를 10자 이상 입력해 주세요.</p>
-        <p v-if="reviewError" class="error-message">{{ reviewError }}</p>
-        <button class="primary-button" type="submit" :disabled="reviewing || confirmationEvidenceTooShort">{{ reviewing ? "저장 중..." : "판정 저장" }}</button>
-      </form>
-
+      </div>
       <button class="ghost-button candidate-back-button" type="button" @click="router.push('/admin/candidates')">목록으로</button>
-    </aside>
+    </main>
+
   </section>
 </template>
 
 <style scoped>
-.evidence-detail-layout { align-items: start; }
+.evidence-detail-layout { grid-template-columns: 1fr; align-items: start; }
 .candidate-evidence-main { min-width: 0; display: grid; gap: 16px; }
 .candidate-detail-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .candidate-detail-header h2 { margin: 4px 0 0; }
 .candidate-subtitle { margin: 5px 0 0; color: #64748b; font-size: 13px; }
 .candidate-header-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.candidate-photo-compare { margin-top: 18px; }
+.candidate-photo-compare { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 18px; align-items: stretch; }
+.candidate-photo-compare .candidate-info-panel { margin-bottom: 0; }
 .reference-photo { background: #f8fafc; }
 .review-image img, .candidate-video-wrap video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .source-frame-block { display: grid; grid-template-columns: 1fr auto; gap: 10px 14px; align-items: center; margin-top: 4px; }
 .source-frame-block p { margin: 3px 0 0; color: #64748b; font-size: 12px; }
-.source-frame-image { grid-column: 1 / -1; min-height: 160px; aspect-ratio: 16 / 7; }
 .ai-decision-notice { display: grid; gap: 4px; margin-top: 16px; padding: 12px 14px; border: 1px solid #e5c87a; border-radius: 8px; background: #fffbeb; color: #76571b; font-size: 12px; line-height: 1.5; }
 .ai-decision-notice strong { color: #5f4615; font-size: 13px; }
 .candidate-video-panel, .candidate-map-panel { min-width: 0; }
+.candidate-video-review-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, .72fr); gap: 16px; align-items: stretch; }
+.candidate-video-review-row .candidate-video-panel, .candidate-video-review-row .candidate-review-form { min-width: 0; margin-bottom: 0; }
+.candidate-map-history-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.candidate-map-history-row > .content-panel { margin-bottom: 0; }
+.candidate-kakao-map .route-map { min-height: 330px; }
 .candidate-video-wrap { display: grid; gap: 10px; }
 .candidate-video-wrap video { width: 100%; height: auto; max-height: 420px; aspect-ratio: 16 / 9; border-radius: 8px; background: #17202d; }
 .candidate-video-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: #64748b; font-size: 12px; }
 .candidate-video-actions .primary-button { min-height: 34px; }
 .candidate-media-empty { min-height: 180px; }
-.candidate-map-frame { overflow: hidden; height: 330px; border: 1px solid #dfe6ec; border-radius: 8px; background: #f8fafc; }
-.candidate-map-frame iframe { width: 100%; height: 100%; border: 0; }
 .camera-coordinate-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .camera-coordinate-row span { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid #edf0f4; border-radius: 7px; background: #f8fafc; }
 .camera-coordinate-row small, .candidate-info-list small { color: #7b8794; font-size: 11px; }
@@ -402,8 +361,10 @@ watch(() => route.params.candidateId, loadCandidate, { immediate: true });
 
 @media (max-width: 860px) {
   .candidate-detail-header, .source-frame-block { display: grid; grid-template-columns: 1fr; }
+  .candidate-photo-compare { grid-template-columns: 1fr; }
+  .candidate-video-review-row { grid-template-columns: 1fr; }
+  .candidate-map-history-row { grid-template-columns: 1fr; }
   .candidate-header-badges { justify-content: flex-start; }
-  .source-frame-image { grid-column: auto; }
   .camera-coordinate-row, .candidate-info-list { grid-template-columns: 1fr; }
 }
 </style>

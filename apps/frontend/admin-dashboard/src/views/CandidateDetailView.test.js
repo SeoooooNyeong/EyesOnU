@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const candidateApi = vi.hoisted(() => ({
   fetchAdminCandidate: vi.fn(),
-  fetchAdminCandidates: vi.fn(),
   reviewAdminCandidate: vi.fn()
 }));
 
 vi.mock("../api/candidateApi", () => candidateApi);
+vi.mock("../components/routes/RouteMap.vue", () => ({
+  default: { template: "<div class='mock-route-map' />" }
+}));
 
 import CandidateDetailView from "./CandidateDetailView.vue";
 
@@ -69,7 +71,6 @@ async function mountView() {
 beforeEach(() => {
   vi.clearAllMocks();
   candidateApi.fetchAdminCandidate.mockResolvedValue({ ...candidate });
-  candidateApi.fetchAdminCandidates.mockResolvedValue({ rows: [], meta: { totalPages: 1, totalElements: 0 } });
 });
 
 afterEach(() => {
@@ -86,13 +87,23 @@ describe("CandidateDetailView", () => {
     expect(root.textContent).toContain("실종자 기준 사진");
     expect(root.textContent).toContain("AI 후보 사진");
     expect(root.textContent).toContain("탐지 전후 영상 클립");
-    expect(root.textContent).toContain("출처 · 녹화");
+    expect(root.textContent).toContain("녹화");
+    expect(root.textContent).not.toContain("출처 · 녹화");
     expect(root.textContent).toContain("AI 유사도는 신원 확정의 근거가 아닙니다");
     expect(root.textContent).toContain("CCTV 위치");
     expect(root.querySelector('img[alt="홍길동 기준 사진"]').getAttribute("src")).toBe(candidate.missingPhotoUrl);
     expect(root.querySelector('img[alt="AI 후보 크롭 이미지"]').getAttribute("src")).toBe(candidate.cropUrl);
     expect(root.querySelector("video").getAttribute("src")).toBe(candidate.clipUrl);
-    expect(root.querySelector("iframe").getAttribute("title")).toBe("탐지 CCTV 위치 지도");
+    expect(root.querySelector(".candidate-video-review-row").children).toHaveLength(2);
+    expect(root.querySelector(".candidate-video-review-row .candidate-review-form")).not.toBeNull();
+    expect(root.querySelector(".candidate-kakao-map .mock-route-map")).not.toBeNull();
+    expect(root.querySelector(".candidate-map-history-row").children).toHaveLength(2);
+    expect(root.querySelector(".candidate-photo-compare").children).toHaveLength(3);
+    expect(root.querySelector(".candidate-photo-compare .candidate-info-panel")).not.toBeNull();
+    expect(root.textContent).toContain("원본 프레임 보기");
+    expect(root.textContent).not.toContain("원본 프레임 크게 보기");
+    expect(root.textContent).not.toContain("다음 미판정 후보");
+    expect(root.querySelector('img[alt="탐지 원본 프레임"]')).toBeNull();
     expect(root.textContent).not.toContain("PENDING");
     expect(root.textContent).not.toContain("2026-08-05T03:20:00Z");
   });
