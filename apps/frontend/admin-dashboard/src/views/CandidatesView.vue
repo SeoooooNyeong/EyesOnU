@@ -136,6 +136,11 @@ const selectCase = (caseItem) => {
   filters.caseId = caseItem?.id ? String(caseItem.id) : "";
   caseDropdownOpen.value = false;
 };
+const handleDocumentClick = (event) => {
+  if (!(event.target instanceof Element) || !event.target.closest(".case-picker")) {
+    caseDropdownOpen.value = false;
+  }
+};
 
 watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.sort], () => {
   if (page.value !== 1) {
@@ -147,17 +152,14 @@ watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, f
 watch(page, load);
 
 onMounted(async () => {
-  try {
-    await Promise.all([loadCases(), loadCameras()]);
-  } catch {
-    cases.value = [];
-    cameras.value = [];
-  }
+  await Promise.allSettled([loadCases(), loadCameras()]);
+  document.addEventListener("click", handleDocumentClick);
   await load();
   refreshTimer = window.setInterval(refresh, 5000);
 });
 
 onUnmounted(() => {
+  document.removeEventListener("click", handleDocumentClick);
   if (refreshTimer) window.clearInterval(refreshTimer);
 });
 </script>
@@ -260,7 +262,7 @@ onUnmounted(() => {
             <tr v-for="item in displayRows" :key="item.id" :class="`review-${reviewStatusTone(item.reviewStatus)}`">
               <td>{{ item.caseNumber }}</td>
               <td><span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span></td>
-              <td>{{ item.cameraCode || item.cameraName || "-" }}</td>
+              <td>{{ item.cameraCode || "-" }}</td>
               <td>{{ hasDuplicateCameraName(item) ? "-" : (item.cameraName || "-") }}</td>
               <td>{{ formatCandidateDate(item.lastDetectedAt) }}</td>
               <td :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</td>

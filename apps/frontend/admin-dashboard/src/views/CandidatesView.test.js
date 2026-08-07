@@ -89,6 +89,15 @@ describe("CandidatesView", () => {
     expect(root.querySelector(".candidate-list-toolbar")).not.toBeNull();
   });
 
+  it("keeps cameras available when loading cases fails", async () => {
+    caseApi.listCases.mockRejectedValueOnce(new Error("temporary network error"));
+    cameraApi.listCameras.mockResolvedValueOnce({ data: [{ id: 12, cameraCode: "CAM-12", cameraName: "후문" }] });
+    const { root } = await mountView();
+
+    const cameraOption = [...root.querySelectorAll("select option")].find((option) => option.value === "12");
+    expect(cameraOption.textContent).toContain("CAM-12");
+  });
+
   it("uses the existing green and blue tones for source filters", async () => {
     const { root } = await mountView();
     const realtimeButton = root.querySelector(".candidate-source-option.green");
@@ -116,6 +125,20 @@ describe("CandidatesView", () => {
     expect(root.querySelector(".case-table tbody tr").classList.contains("review-amber")).toBe(true);
   });
 
+  it("keeps a missing camera code out of the CCTV column", async () => {
+    candidateApi.fetchAdminCandidates.mockResolvedValueOnce({
+      rows: [{ ...rows[0], cameraCode: null, cameraName: "camera01" }],
+      meta: { totalPages: 1, totalElements: 1 }
+    });
+    const { root } = await mountView();
+    root.querySelector('[aria-label="테이블 보기"]').click();
+    await flushUi();
+
+    const cells = root.querySelectorAll(".case-table tbody tr td");
+    expect(cells[2].textContent).toBe("-");
+    expect(cells[3].textContent).toBe("camera01");
+  });
+
   it("uses the selected camera and sort in the request", async () => {
     const { root } = await mountView();
     const selects = root.querySelectorAll("select");
@@ -139,6 +162,17 @@ describe("CandidatesView", () => {
 
     const cameraOption = [...root.querySelectorAll("select option")].find((option) => option.value === "12");
     expect(cameraOption.textContent).toBe("camera-01");
+  });
+
+  it("closes the case picker when clicking outside it", async () => {
+    const { root } = await mountView();
+    root.querySelector(".case-picker-trigger").click();
+    await flushUi();
+    expect(root.querySelector(".case-picker-menu")).not.toBeNull();
+
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flushUi();
+    expect(root.querySelector(".case-picker-menu")).toBeNull();
   });
 
   it("translates server validation errors into Korean guidance", async () => {
