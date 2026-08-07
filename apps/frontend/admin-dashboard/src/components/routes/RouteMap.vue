@@ -48,11 +48,6 @@ function groupedPoints(points) {
   return [...groups.values()];
 }
 
-function markerLabel(indices) {
-  const sequences = indices.map((index) => index + 1);
-  return sequences.length <= 3 ? sequences.join("·") : `${sequences[0]} +${sequences.length - 1}`;
-}
-
 function updateActiveMarker() {
   overlays.forEach(({ element, indices }) => {
     element.classList.toggle("active", indices.includes(props.activeIndex));
@@ -93,8 +88,14 @@ function drawRoute() {
     const element = document.createElement("button");
     element.type = "button";
     element.className = "route-coordinate-marker";
-    element.textContent = markerLabel(indices);
-    element.title = `${indices.map((index) => `${index + 1}번`).join(", ")} 관측 지점`;
+    const markerTitle = `${indices.map((index) => `${index + 1}번`).join(", ")} 관측 지점`;
+    element.setAttribute("aria-label", markerTitle);
+    element.title = markerTitle;
+    const markerImage = document.createElement("img");
+    markerImage.src = "/mock/cctv-marker.webp";
+    markerImage.alt = "";
+    markerImage.draggable = false;
+    element.appendChild(markerImage);
     const clickHandler = () => emit("select", indices[0]);
     element.addEventListener("click", clickHandler);
     const overlay = new kakao.maps.CustomOverlay({
