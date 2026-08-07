@@ -94,6 +94,7 @@ describe("CandidateDetailView", () => {
     expect(root.querySelector('img[alt="홍길동 기준 사진"]').getAttribute("src")).toBe(candidate.missingPhotoUrl);
     expect(root.querySelector('img[alt="AI 후보 크롭 이미지"]').getAttribute("src")).toBe(candidate.cropUrl);
     expect(root.querySelector("video").getAttribute("src")).toBe(candidate.clipUrl);
+    expect(root.querySelector(".candidate-detection-history-table")).not.toBeNull();
     expect(root.querySelector(".candidate-video-review-row").children).toHaveLength(2);
     expect(root.querySelector(".candidate-video-review-row .candidate-review-form")).not.toBeNull();
     expect(root.querySelector(".candidate-kakao-map .mock-route-map")).not.toBeNull();
@@ -151,6 +152,22 @@ describe("CandidateDetailView", () => {
     expect(root.textContent).toContain("원본 녹화본에서 탐지 시각 전후 구간을 재생합니다");
     expect(root.textContent).toContain("탐지 전후 구간 재생");
     expect(root.querySelector("video").getAttribute("src")).toBe("https://storage.example/recording.mp4");
+  });
+
+  it("실시간 후보는 영상 대신 안내 패널을 표시한다", async () => {
+    candidateApi.fetchAdminCandidate.mockResolvedValue({
+      ...candidate,
+      sourceType: "REALTIME",
+      clipUrl: null,
+      recordingUrl: null,
+      clipStatus: null
+    });
+    const { root } = await mountView();
+
+    expect(root.querySelector("video")).toBeNull();
+    expect(root.querySelector(".candidate-video-unavailable")).not.toBeNull();
+    expect(root.textContent).toContain("실시간 후보는 저장된 영상 클립을 제공하지 않습니다.");
+    expect(root.textContent).toContain("탐지 원본 프레임과 CCTV 위치 정보를 확인해 주세요.");
   });
 
   it("reloads the detail when only the candidate route parameter changes", async () => {
