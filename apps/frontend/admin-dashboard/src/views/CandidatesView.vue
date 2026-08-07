@@ -38,6 +38,9 @@ const totalPages = ref(1);
 const totalCount = ref(0);
 const resolvedCollapsed = ref(true);
 const selectedCase = computed(() => cases.value.find((item) => String(item.id) === String(filters.caseId)));
+const selectedCaseLabel = computed(() => selectedCase.value
+  ? `${selectedCase.value.caseNumber} · ${selectedCase.value.name || "이름 미등록"}`
+  : "전체 사건");
 const resolvedStatuses = new Set(["CONFIRMED", "REJECTED"]);
 const resolvedRows = computed(() => rows.value.filter((item) => resolvedStatuses.has(String(item.reviewStatus || "").toUpperCase())));
 const shouldCollapseResolved = computed(() => resolvedCollapsed.value && filters.review === "all");
@@ -171,7 +174,7 @@ onUnmounted(() => {
     <div class="filter-bar candidate-filter-bar">
       <label class="case-select-field">사건
         <div class="case-picker">
-          <button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCase?.caseNumber || "전체 사건" }}</button>
+          <button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCaseLabel }}</button>
           <div v-if="caseDropdownOpen" class="case-picker-menu">
             <button type="button" class="case-picker-option" @click="selectCase()">전체 사건</button>
             <button v-for="caseItem in cases" :key="caseItem.id" type="button" class="case-picker-option" @click="selectCase(caseItem)">{{ caseItem.caseNumber }} · {{ caseItem.name || "이름 미등록" }}</button>

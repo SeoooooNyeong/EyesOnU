@@ -67,6 +67,12 @@ describe("CandidatesView", () => {
     expect(root.textContent).not.toContain("track");
     expect(root.querySelectorAll(".candidate-card")).toHaveLength(1);
 
+    root.querySelector(".case-picker-trigger").click();
+    await flushUi();
+    [...root.querySelectorAll(".case-picker-option")].find((option) => option.textContent.includes("CASE-1 · 홍길동")).click();
+    await flushUi();
+    expect(root.querySelector(".case-picker-trigger").textContent).toContain("CASE-1 · 홍길동");
+
     root.querySelector(".resolved-candidates-toggle").click();
     await flushUi();
 
