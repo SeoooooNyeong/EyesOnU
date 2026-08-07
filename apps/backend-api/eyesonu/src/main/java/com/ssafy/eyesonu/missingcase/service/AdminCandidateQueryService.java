@@ -83,12 +83,14 @@ public class AdminCandidateQueryService {
 
     private String[] parseSort(String value) {
         String normalized = value == null || value.isBlank() ? "lastDetectedAt,desc" : value;
+        if (normalized.equals("pendingFirst")) return new String[]{"pendingFirst", "asc"};
+        if (normalized.equals("realtimeFirst")) return new String[]{"realtimeFirst", "asc"};
         String[] parts = normalized.split(",", -1);
         if (parts.length != 2
                 || (!parts[0].equals("lastDetectedAt") && !parts[0].equals("firstDetectedAt")
                 && !parts[0].equals("bestSimilarity") && !parts[0].equals("createdAt"))
                 || (!parts[1].equals("asc") && !parts[1].equals("desc"))) {
-            throw validation("sort must be one of lastDetectedAt, firstDetectedAt, bestSimilarity, createdAt with asc or desc");
+            throw validation("sort must be pendingFirst, realtimeFirst, or one of lastDetectedAt, firstDetectedAt, bestSimilarity, createdAt with asc or desc");
         }
         return parts;
     }

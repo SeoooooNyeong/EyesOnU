@@ -3,31 +3,79 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { LayoutGrid, Table2 } from "lucide-vue-next";
 import { useRoute, useRouter } from "vue-router";
 import { fetchAdminCandidates } from "../api/candidateApi";
+import { listCameras } from "../api/cameraApi";
 import { listCases } from "../api/caseApi";
 import BasePagination from "../components/common/BasePagination.vue";
-import { candidateSourceLabel, candidateSourceTone, formatCandidateDate, reviewStatusLabel, reviewStatusTone, similarityPercent, similarityTone } from "../domain/candidateMapper";
+import {
+  candidateSourceLabel,
+  candidateSourceTone,
+  formatCandidateDate,
+  reviewStatusLabel,
+  reviewStatusTone,
+  similarityPercent,
+  similarityTone
+} from "../domain/candidateMapper";
 
 const router = useRouter();
 const route = useRoute();
-const filters = reactive({ caseId: "", source: "all", review: "all", view: "card" });
+const filters = reactive({
+  caseId: "",
+  source: "all",
+  review: "all",
+  cameraId: "",
+  sort: "pendingFirst",
+  view: "card"
+});
 const rows = ref([]);
 const cases = ref([]);
+const cameras = ref([]);
 const caseDropdownOpen = ref(false);
 const loading = ref(true);
 const error = ref("");
 const page = ref(1);
-const pageSize = ref(20);
+const PAGE_SIZE = 20;
 const totalPages = ref(1);
 const totalCount = ref(0);
+const resolvedCollapsed = ref(true);
 const selectedCase = computed(() => cases.value.find((item) => String(item.id) === String(filters.caseId)));
-const listParams = () => ({
+const selectedCaseLabel = computed(() => selectedCase.value
+  ? `${selectedCase.value.caseNumber} · ${selectedCase.value.name || "이름 미등록"}`
+  : "전체 사건");
+const resolvedStatuses = new Set(["CONFIRMED", "REJECTED"]);
+const resolvedRows = computed(() => rows.value.filter((item) => resolvedStatuses.has(String(item.reviewStatus || "").toUpperCase())));
+const shouldCollapseResolved = computed(() => resolvedCollapsed.value && filters.review === "all");
+const displayRows = computed(() => shouldCollapseResolved.value
+  ? rows.value.filter((item) => !resolvedStatuses.has(String(item.reviewStatus || "").toUpperCase()))
+  : rows.value);
+const normalizeCameraLabel = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+const hasDuplicateCameraName = (camera) => {
+  const code = String(camera?.cameraCode || "");
+  const name = String(camera?.cameraName || "");
+  return Boolean(code && name && normalizeCameraLabel(code) === normalizeCameraLabel(name));
+};
+const cameraDisplayLabel = (camera) => {
+  const code = String(camera?.cameraCode || "");
+  const name = String(camera?.cameraName || "");
+  if (!name || name === "-" || hasDuplicateCameraName(camera)) return code || name || "카메라 위치 미등록";
+  if (!code || code === "-") return name;
+  return `${code} · ${name}`;
+};
+
+const listParams = ({ pageNumber = page.value - 1, size = PAGE_SIZE, reviewStatus } = {}) => ({
   caseId: filters.caseId || undefined,
   sourceType: filters.source === "all" ? undefined : filters.source,
-  reviewStatus: filters.review === "all" ? undefined : filters.review.toUpperCase(),
-  page: page.value - 1,
-  size: pageSize.value,
-  sort: "lastDetectedAt,desc"
+  reviewStatus: reviewStatus || (filters.review === "all" ? undefined : filters.review.toUpperCase()),
+  cameraId: filters.cameraId || undefined,
+  page: pageNumber,
+  size,
+  sort: filters.sort
 });
+
+const openCandidate = (candidate) => {
+  const query = Object.fromEntries(Object.entries(listParams({ pageNumber: undefined }))
+    .filter(([key, value]) => !["page", "size"].includes(key) && value !== undefined && value !== ""));
+  router.push({ path: `/admin/candidates/${candidate.id}`, query });
+};
 
 const loadCases = async () => {
   const result = await listCases({ page: 0, size: 100, sort: "reportedAt,desc" });
@@ -44,19 +92,35 @@ const loadCases = async () => {
   if (initialCase) filters.caseId = String(initialCase.id);
 };
 
+const loadCameras = async () => {
+  const result = await listCameras({ page: 0, size: 100, sort: "cameraCode,asc" });
+  cameras.value = result.data || [];
+};
+
+const candidateErrorMessage = (exception) => {
+  const message = String(exception?.message || "");
+  if (message.includes("sort must be one of")) {
+    return "정렬 기준을 불러오지 못했습니다. 서버를 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.";
+  }
+  if (message.includes("reviewStatus must be")) {
+    return "판정 상태 필터가 올바르지 않습니다.";
+  }
+  return message || "후보 목록을 불러오지 못했습니다.";
+};
+
 const load = async ({ showLoading = true } = {}) => {
   if (showLoading) loading.value = true;
   error.value = "";
   try {
     const result = await fetchAdminCandidates(listParams());
-    rows.value = result.rows;
+    rows.value = result.rows || [];
     totalPages.value = Math.max(1, result.meta?.totalPages || 1);
     totalCount.value = result.meta?.totalElements || 0;
   } catch (exception) {
     rows.value = [];
     totalPages.value = 1;
     totalCount.value = 0;
-    error.value = exception.message || "후보 목록을 불러오지 못했습니다.";
+    error.value = candidateErrorMessage(exception);
   } finally {
     loading.value = false;
   }
@@ -72,8 +136,13 @@ const selectCase = (caseItem) => {
   filters.caseId = caseItem?.id ? String(caseItem.id) : "";
   caseDropdownOpen.value = false;
 };
+const handleDocumentClick = (event) => {
+  if (!(event.target instanceof Element) || !event.target.closest(".case-picker")) {
+    caseDropdownOpen.value = false;
+  }
+};
 
-watch(() => [filters.caseId, filters.source, filters.review, pageSize.value], () => {
+watch(() => [filters.caseId, filters.source, filters.review, filters.cameraId, filters.sort], () => {
   if (page.value !== 1) {
     page.value = 1;
     return;
@@ -83,16 +152,14 @@ watch(() => [filters.caseId, filters.source, filters.review, pageSize.value], ()
 watch(page, load);
 
 onMounted(async () => {
-  try {
-    await loadCases();
-  } catch {
-    cases.value = [];
-  }
+  await Promise.allSettled([loadCases(), loadCameras()]);
+  document.addEventListener("click", handleDocumentClick);
   await load();
   refreshTimer = window.setInterval(refresh, 5000);
 });
 
 onUnmounted(() => {
+  document.removeEventListener("click", handleDocumentClick);
   if (refreshTimer) window.clearInterval(refreshTimer);
 });
 </script>
@@ -100,28 +167,26 @@ onUnmounted(() => {
 <template>
   <section class="content-panel">
     <div class="section-heading">
-      <div><h2>후보 검출 목록</h2><p>실시간 후보 탐지 결과를 사건과 판정 상태 기준으로 확인합니다.</p></div>
-      <div class="segmented view-toggle">
-        <button :class="{ active: filters.view === 'card' }" title="카드 보기" aria-label="카드 보기" @click="filters.view = 'card'"><LayoutGrid :size="17" /></button>
-        <button :class="{ active: filters.view === 'table' }" title="테이블 보기" aria-label="테이블 보기" @click="filters.view = 'table'"><Table2 :size="17" /></button>
+      <div>
+        <h2>후보 검토 목록</h2>
+        <p>미판정 후보를 우선 확인하고, 유사도와 탐지 시각 기준으로 빠르게 검토합니다.</p>
       </div>
     </div>
 
     <div class="filter-bar candidate-filter-bar">
       <label class="case-select-field">사건
         <div class="case-picker">
-          <button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCase?.caseNumber || "전체 사건" }}</button>
+          <button type="button" class="case-picker-trigger" @click="caseDropdownOpen = !caseDropdownOpen">{{ selectedCaseLabel }}</button>
           <div v-if="caseDropdownOpen" class="case-picker-menu">
             <button type="button" class="case-picker-option" @click="selectCase()">전체 사건</button>
             <button v-for="caseItem in cases" :key="caseItem.id" type="button" class="case-picker-option" @click="selectCase(caseItem)">{{ caseItem.caseNumber }} · {{ caseItem.name || "이름 미등록" }}</button>
           </div>
         </div>
       </label>
-      <label>탐색 출처
-        <select v-model="filters.source">
-          <option value="all">전체</option>
-          <option value="REALTIME">실시간</option>
-          <option value="RECORDING_ANALYSIS">녹화영상</option>
+      <label>카메라
+        <select v-model="filters.cameraId">
+          <option value="">전체 카메라</option>
+          <option v-for="camera in cameras" :key="camera.id" :value="String(camera.id)">{{ cameraDisplayLabel(camera) }}</option>
         </select>
       </label>
       <label>판정 상태
@@ -133,29 +198,78 @@ onUnmounted(() => {
           <option value="rejected">대상 아님</option>
         </select>
       </label>
-      <label>페이지 크기
-        <select v-model.number="pageSize"><option :value="20">20</option><option :value="50">50</option><option :value="100">100</option></select>
-      </label>
+      <div class="candidate-source-filter">
+        <strong class="candidate-source-filter-label">영상 유형</strong>
+        <div class="candidate-source-options" role="group" aria-label="영상 유형">
+          <button type="button" :class="['candidate-source-option', { active: filters.source === 'all' }]" :aria-pressed="filters.source === 'all'" @click="filters.source = 'all'">전체</button>
+          <button type="button" :class="['candidate-source-option', 'green', { active: filters.source === 'REALTIME' }]" :aria-pressed="filters.source === 'REALTIME'" @click="filters.source = 'REALTIME'">실시간</button>
+          <button type="button" :class="['candidate-source-option', 'blue', { active: filters.source === 'RECORDING_ANALYSIS' }]" :aria-pressed="filters.source === 'RECORDING_ANALYSIS'" @click="filters.source = 'RECORDING_ANALYSIS'">녹화영상</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="candidate-list-toolbar">
+      <div class="candidate-list-actions">
+        <div class="resolved-candidates-toggle-row">
+          <span class="resolved-candidates-toggle-label">확정·제외 후보 <strong>{{ resolvedRows.length }}건</strong></span>
+          <button class="resolved-candidates-toggle" type="button" role="switch" :disabled="resolvedRows.length === 0" :aria-checked="resolvedRows.length > 0 && !shouldCollapseResolved" :aria-label="resolvedRows.length === 0 ? '확정·제외 후보 없음' : (shouldCollapseResolved ? '확정·제외 후보 펼치기' : '확정·제외 후보 접기')" @click="resolvedCollapsed = !resolvedCollapsed">
+            <span class="resolved-candidates-toggle-track" aria-hidden="true">
+              <span class="resolved-candidates-toggle-thumb"></span>
+            </span>
+          </button>
+        </div>
+
+        <div class="candidate-sort-control">
+          <select id="candidate-sort" class="candidate-sort-select" aria-label="정렬 기준" v-model="filters.sort">
+            <option value="pendingFirst">미판정 우선</option>
+            <option value="realtimeFirst">실시간 우선</option>
+            <option value="bestSimilarity,desc">유사도 높은 순</option>
+            <option value="lastDetectedAt,desc">탐지 최신순</option>
+            </select>
+        </div>
+
+        <div class="segmented view-toggle">
+          <button :class="{ active: filters.view === 'card' }" title="카드 보기" aria-label="카드 보기" @click="filters.view = 'card'"><LayoutGrid :size="17" /></button>
+          <button :class="{ active: filters.view === 'table' }" title="테이블 보기" aria-label="테이블 보기" @click="filters.view = 'table'"><Table2 :size="17" /></button>
+        </div>
+      </div>
     </div>
 
     <p v-if="loading" class="empty-state">후보 목록을 불러오는 중입니다.</p>
     <p v-else-if="error" class="error-message">{{ error }}</p>
     <p v-else-if="rows.length === 0" class="empty-state">조회된 후보가 없습니다.</p>
+    <p v-else-if="displayRows.length === 0" class="empty-state">접힌 확정·제외 후보 외에 표시할 후보가 없습니다.</p>
     <template v-else>
       <div v-if="filters.view === 'card'" class="candidate-grid">
-        <button v-for="item in rows" :key="item.id" class="candidate-card" @click="router.push(`/admin/candidates/${item.id}`)">
+        <button v-for="item in displayRows" :key="item.id" :class="['candidate-card', `review-${reviewStatusTone(item.reviewStatus)}`]" @click="openCandidate(item)">
+          <div class="candidate-card-top-row">
+            <span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
+            <span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span>
+          </div>
           <img v-if="item.cropUrl" :src="item.cropUrl" alt="후보 캡처" />
           <span v-else class="image-placeholder large">이미지 없음</span>
-          <strong>{{ item.caseNumber }}</strong>
-          <span :class="['status-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span>
-          <p>{{ item.cameraCode }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
-          <p class="candidate-location">{{ item.cameraName || "카메라 위치 미등록" }} · track {{ item.trackId }}</p>
-          <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b><span :class="['status-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span>
+          <div class="candidate-card-content">
+            <strong>{{ item.caseNumber }}</strong>
+            <p class="candidate-detection-meta">{{ cameraDisplayLabel(item) }} · {{ formatCandidateDate(item.lastDetectedAt) }}</p>
+            <b :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</b>
+          </div>
         </button>
       </div>
       <div v-else class="table-scroll">
-        <table class="case-table"><thead><tr><th>사건</th><th>출처</th><th>CCTV</th><th>카메라</th><th>최근 탐지</th><th>유사도</th><th>상태</th><th></th></tr></thead>
-          <tbody><tr v-for="item in rows" :key="item.id"><td>{{ item.caseNumber }}</td><td><span :class="['status-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span></td><td>{{ item.cameraCode }}</td><td>{{ item.cameraName || "-" }}</td><td>{{ formatCandidateDate(item.lastDetectedAt) }}</td><td :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</td><td><span :class="['status-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span></td><td><button class="ghost-button" @click="router.push(`/admin/candidates/${item.id}`)">상세 보기</button></td></tr></tbody>
+        <table class="case-table">
+          <thead><tr><th>사건</th><th>출처</th><th>CCTV</th><th>카메라</th><th>최근 탐지</th><th>유사도</th><th>상태</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="item in displayRows" :key="item.id" :class="`review-${reviewStatusTone(item.reviewStatus)}`">
+              <td>{{ item.caseNumber }}</td>
+              <td><span :class="['status-badge', 'candidate-source-badge', candidateSourceTone(item.sourceType)]">{{ candidateSourceLabel(item.sourceType) }}</span></td>
+              <td>{{ item.cameraCode || "-" }}</td>
+              <td>{{ hasDuplicateCameraName(item) ? "-" : (item.cameraName || "-") }}</td>
+              <td>{{ formatCandidateDate(item.lastDetectedAt) }}</td>
+              <td :class="['similarity-score', similarityTone(item.bestSimilarity)]">{{ similarityPercent(item.bestSimilarity) }}%</td>
+              <td><span :class="['status-badge', 'candidate-review-badge', reviewStatusTone(item.reviewStatus)]">{{ reviewStatusLabel(item.reviewStatus) }}</span></td>
+              <td><button class="ghost-button" @click="openCandidate(item)">상세 보기</button></td>
+            </tr>
+          </tbody>
         </table>
       </div>
       <BasePagination v-model:page="page" :total-pages="totalPages" :total-count="totalCount" />
