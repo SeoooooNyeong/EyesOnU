@@ -53,10 +53,14 @@ describe("searchCondition domain", () => {
       searchArea: "테헤란로"
     });
     expect(payload.searchStart).toMatch(/^2026-08-03T/);
+    expect(new Date(payload.searchStart).getSeconds()).toBe(0);
+    expect(new Date(payload.searchStart).getMilliseconds()).toBe(0);
+    expect(new Date(payload.searchEnd).getSeconds()).toBe(0);
+    expect(new Date(payload.searchEnd).getMilliseconds()).toBe(0);
     expect(payload).not.toHaveProperty("similarityThreshold");
   });
 
-  it("preserves seconds and milliseconds while converting an existing API time for editing", () => {
+  it("truncates existing API seconds and milliseconds to the minute for editing and saving", () => {
     const source = new Date(2026, 7, 3, 9, 20, 59, 987).toISOString();
     const localValue = toLocalDateTimeInput(source);
     const payload = buildSearchConditionPayload(validForm({
@@ -64,10 +68,10 @@ describe("searchCondition domain", () => {
       searchEnd: localValue
     }));
 
-    expect(localValue).toMatch(/T09:20:59\.987$/);
-    expect(new Date(payload.searchStart).getSeconds()).toBe(59);
-    expect(new Date(payload.searchStart).getMilliseconds()).toBe(987);
-    expect(new Date(payload.searchEnd).getSeconds()).toBe(59);
-    expect(new Date(payload.searchEnd).getMilliseconds()).toBe(987);
+    expect(localValue).toMatch(/T09:20$/);
+    expect(new Date(payload.searchStart).getSeconds()).toBe(0);
+    expect(new Date(payload.searchStart).getMilliseconds()).toBe(0);
+    expect(new Date(payload.searchEnd).getSeconds()).toBe(0);
+    expect(new Date(payload.searchEnd).getMilliseconds()).toBe(0);
   });
 });

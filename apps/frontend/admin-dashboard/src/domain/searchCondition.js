@@ -67,16 +67,16 @@ export function toLocalDateTimeInput(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const pad = (part) => String(part).padStart(2, "0");
-  const milliseconds = date.getMilliseconds();
-  const fraction = milliseconds ? `.${String(milliseconds).padStart(3, "0")}` : "";
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-    + `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${fraction}`;
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function toApiDateTime(value) {
   if (!value) return null;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  if (Number.isNaN(date.getTime())) return null;
+  date.setSeconds(0, 0);
+  return date.toISOString();
 }
 
 export function validateSearchConditionForm(form) {

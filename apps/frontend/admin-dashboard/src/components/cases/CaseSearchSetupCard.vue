@@ -438,8 +438,7 @@ onBeforeUnmount(() => {
   <section class="search-setup-card" aria-labelledby="search-setup-title">
     <div class="section-heading search-setup-heading">
       <div>
-        <h2 id="search-setup-title">실시간 탐색 설정</h2>
-        <p>탐색 조건과 분석할 카메라를 사건별로 관리합니다.</p>
+        <h2 id="search-setup-title">탐색 설정</h2>
       </div>
       <span v-if="closed" class="readonly-chip">종료 사건 · 읽기 전용</span>
     </div>
@@ -462,7 +461,6 @@ onBeforeUnmount(() => {
           <div class="setup-section-heading">
             <div>
               <h3 id="condition-heading">탐색 조건</h3>
-              <p>Jetson이 해석할 수 있는 구조화 조건만 준비 상태에 포함됩니다.</p>
             </div>
             <button v-if="!closed" type="button" class="ghost-button" :disabled="mutationBusy" @click="openCreateCondition">조건 추가</button>
           </div>
@@ -555,8 +553,8 @@ onBeforeUnmount(() => {
             </fieldset>
 
             <div class="time-grid">
-              <label>탐색 시작<input v-model="conditionForm.searchStart" type="datetime-local" step="0.001" /></label>
-              <label>탐색 종료<input v-model="conditionForm.searchEnd" type="datetime-local" step="0.001" /></label>
+              <label>탐색 시작<input v-model="conditionForm.searchStart" type="datetime-local" step="60" /></label>
+              <label>탐색 종료<input v-model="conditionForm.searchEnd" type="datetime-local" step="60" /></label>
             </div>
             <label class="area-field">탐색 구역 (선택)<input v-model="conditionForm.searchArea" maxlength="255" placeholder="예: 테헤란로 일대" /></label>
             <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
@@ -573,7 +571,6 @@ onBeforeUnmount(() => {
           <div class="setup-section-heading">
             <div>
               <h3 id="camera-heading">배정 카메라</h3>
-              <p>활성 배정된 카메라 영상이 실시간 분석 대상이 됩니다.</p>
             </div>
             <button v-if="!closed" type="button" class="ghost-button" :disabled="mutationBusy" @click="openCameraPicker">카메라 추가</button>
           </div>
