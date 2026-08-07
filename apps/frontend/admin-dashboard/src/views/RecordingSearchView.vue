@@ -518,7 +518,7 @@ onUnmounted(() => {
           <div v-if="batchResult?.failures.length" class="form-error" role="alert">
             <strong>실패한 녹화본</strong>
             <ul>
-              <li v-for="failure in batchResult.failures" :key="failure.recordingId">녹화 ID {{ failure.recordingId }}: {{ failure.message }}</li>
+              <li v-for="failure in (batchResult?.failures || [])" :key="failure.recordingId">녹화 ID {{ failure.recordingId }}: {{ failure.message }}</li>
             </ul>
           </div>
         </div>
