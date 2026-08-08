@@ -3,28 +3,38 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   cancelRecordingAnalysisJobMock,
+  completeManualRecordingUploadMock,
+  createManualRecordingUploadUrlMock,
   createRecordingAnalysisJobMock,
   fetchRecordingAnalysisJobMock,
   listAdminRecordingsMock,
+  listCamerasMock,
   listCaseCamerasMock,
   listCasesMock,
   listRecordingAnalysisJobsMock,
   listRecordingAnalysisJobsForDashboardMock,
   listSearchConditionsMock,
+  readManualRecordingDurationMock,
   retryRecordingAnalysisJobMock,
-  routerPushMock
+  routerPushMock,
+  uploadManualRecordingFileMock
 } = vi.hoisted(() => ({
   cancelRecordingAnalysisJobMock: vi.fn(),
+  completeManualRecordingUploadMock: vi.fn(),
+  createManualRecordingUploadUrlMock: vi.fn(),
   createRecordingAnalysisJobMock: vi.fn(),
   fetchRecordingAnalysisJobMock: vi.fn(),
   listAdminRecordingsMock: vi.fn(),
+  listCamerasMock: vi.fn(),
   listCaseCamerasMock: vi.fn(),
   listCasesMock: vi.fn(),
   listRecordingAnalysisJobsMock: vi.fn(),
   listRecordingAnalysisJobsForDashboardMock: vi.fn(),
   listSearchConditionsMock: vi.fn(),
+  readManualRecordingDurationMock: vi.fn(),
   retryRecordingAnalysisJobMock: vi.fn(),
-  routerPushMock: vi.fn()
+  routerPushMock: vi.fn(),
+  uploadManualRecordingFileMock: vi.fn()
 }));
 
 vi.mock("../api/caseApi", () => ({
@@ -35,12 +45,22 @@ vi.mock("../api/caseApi", () => ({
 
 vi.mock("../api/recordingApi", () => ({
   cancelRecordingAnalysisJob: cancelRecordingAnalysisJobMock,
+  completeManualRecordingUpload: completeManualRecordingUploadMock,
+  createManualRecordingUploadUrl: createManualRecordingUploadUrlMock,
   createRecordingAnalysisJob: createRecordingAnalysisJobMock,
   fetchRecordingAnalysisJob: fetchRecordingAnalysisJobMock,
   listAdminRecordings: listAdminRecordingsMock,
   listRecordingAnalysisJobs: listRecordingAnalysisJobsMock,
   listRecordingAnalysisJobsForDashboard: listRecordingAnalysisJobsForDashboardMock,
-  retryRecordingAnalysisJob: retryRecordingAnalysisJobMock
+  retryRecordingAnalysisJob: retryRecordingAnalysisJobMock,
+  uploadManualRecordingFile: uploadManualRecordingFileMock
+}));
+
+vi.mock("../api/cameraApi", () => ({ listCameras: listCamerasMock }));
+
+vi.mock("../domain/manualRecordingUpload", async (importOriginal) => ({
+  ...(await importOriginal()),
+  readManualRecordingDuration: readManualRecordingDurationMock
 }));
 
 vi.mock("vue-router", () => ({
@@ -85,6 +105,19 @@ const recording = (overrides = {}) => ({
   },
   startTime: "2026-08-04T10:14:32Z",
   endTime: "2026-08-04T10:14:46Z",
+  ...overrides
+});
+
+const availableCamera = (overrides = {}) => ({
+  id: 4,
+  cameraCode: "camera-04",
+  cameraName: "정문 카메라",
+  mediaServer: { id: 3, serverCode: "media-a", name: "Media A" },
+  latitude: 37.5,
+  longitude: 127,
+  address: "서울 정문",
+  status: "OFFLINE",
+  lastHeartbeat: "2026-08-08T05:00:00Z",
   ...overrides
 });
 
@@ -157,6 +190,28 @@ describe("RecordingSearchView", () => {
     await selectCamera();
   };
 
+  const openManualRecording = async () => {
+    root.querySelector(".manual-recording-open-button").click();
+    await settle();
+  };
+
+  const fillManualRecording = async ({ startKst = "2026-08-04T19:15:00" } = {}) => {
+    root.querySelector(".manual-camera-option").click();
+    const file = new File([new Uint8Array([0, 0, 0, 8, 102, 116, 121, 112])], "missing.mp4", {
+      type: "video/mp4"
+    });
+    const fileInput = root.querySelector(".manual-recording-file-input");
+    Object.defineProperty(fileInput, "files", { configurable: true, value: [file] });
+    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+
+    const startInput = root.querySelector('.manual-recording-time-grid input[type="datetime-local"]');
+    startInput.value = startKst;
+    startInput.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    return file;
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     listCasesMock.mockResolvedValue(page([caseItem]));
@@ -165,6 +220,28 @@ describe("RecordingSearchView", () => {
     listSearchConditionsMock.mockResolvedValue([condition]);
     listCaseCamerasMock.mockResolvedValue([camera()]);
     listAdminRecordingsMock.mockResolvedValue(page([recording()]));
+    listCamerasMock.mockResolvedValue(page([availableCamera()], {
+      size: 10,
+      sort: "cameraCode,asc"
+    }));
+    readManualRecordingDurationMock.mockResolvedValue(30);
+    createManualRecordingUploadUrlMock.mockResolvedValue({
+      objectKey: "recordings/camera-04/manual.mp4",
+      uploadUrl: "https://storage.example/upload?signature=secret",
+      contentType: "video/mp4",
+      expiresInSeconds: 900,
+      maxFileSizeBytes: 104857600
+    });
+    uploadManualRecordingFileMock.mockResolvedValue(undefined);
+    completeManualRecordingUploadMock.mockResolvedValue({
+      id: 701,
+      cameraId: 4,
+      startTime: "2026-08-04T10:15:00Z",
+      endTime: "2026-08-04T10:15:30Z",
+      fileSize: 1024,
+      duplicate: false,
+      createdAt: "2026-08-08T06:05:00Z"
+    });
     createRecordingAnalysisJobMock.mockImplementation((caseId, payload) => Promise.resolve(job({
       jobId: 500 + payload.recordingId,
       caseId: Number(caseId),
@@ -611,5 +688,170 @@ describe("RecordingSearchView", () => {
     expect(createRecordingAnalysisJobMock).not.toHaveBeenCalled();
     expect(root.textContent).toContain("선택한 카메라에 분석 기간과 겹치는 녹화본이 없습니다.");
     expect(root.querySelector(".search-button").disabled).toBe(true);
+  });
+
+  it("shows the recording add action to every admin and searches all cameras in the modal", async () => {
+    mount();
+    await settle();
+
+    expect(root.querySelector(".manual-recording-open-button").textContent).toContain("녹화본 추가");
+    await openManualRecording();
+
+    expect(listCamerasMock).toHaveBeenCalledWith({
+      search: undefined,
+      page: 0,
+      size: 10,
+      sort: "cameraCode,asc"
+    });
+    expect(root.querySelector(".manual-camera-option").textContent).toContain("camera-04 · 정문 카메라");
+
+    const searchInput = root.querySelector('[aria-label="녹화 카메라 검색"]');
+    searchInput.value = "정문";
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    root.querySelector(".manual-camera-search").dispatchEvent(new Event("submit", {
+      bubbles: true,
+      cancelable: true
+    }));
+    await settle();
+
+    expect(listCamerasMock).toHaveBeenLastCalledWith({
+      search: "정문",
+      page: 0,
+      size: 10,
+      sort: "cameraCode,asc"
+    });
+  });
+
+  it("confirms an overlapping period, uploads with one idempotency key, and refreshes analysis targets", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("550e8400-e29b-41d4-a716-446655440000");
+    const overlaps = Array.from({ length: 6 }, (_, index) => recording({
+      id: 100 + index,
+      startTime: `2026-08-04T10:14:5${index}Z`,
+      endTime: `2026-08-04T10:15:1${index}Z`
+    }));
+    listAdminRecordingsMock.mockImplementation((params) => Promise.resolve(
+      params.size === 10
+        ? page(overlaps, { size: 10, totalElements: 8 })
+        : page([recording()])
+    ));
+    mount();
+    await settle();
+    await selectCaseAndCamera();
+    await openManualRecording();
+    const file = await fillManualRecording();
+
+    expect(root.querySelectorAll('.manual-recording-time-grid input[type="datetime-local"]')[1].value)
+      .toBe("2026-08-04T19:15:30.000");
+    root.querySelector(".manual-recording-submit-button").click();
+    await settle();
+
+    expect(listAdminRecordingsMock).toHaveBeenLastCalledWith({
+      cameraId: 4,
+      startFrom: "2026-08-04T10:15:00.000Z",
+      startTo: "2026-08-04T10:15:30.000Z",
+      page: 0,
+      size: 10,
+      sort: "startTime,asc"
+    });
+    expect(root.textContent).toContain("같은 시간대의 녹화본 8건");
+    expect(root.textContent).toContain("2026-08-04 19:14:50 ~ 2026-08-04 19:15:10 KST");
+    expect(root.textContent).toContain("외 3건");
+    expect(createManualRecordingUploadUrlMock).not.toHaveBeenCalled();
+
+    root.querySelector(".manual-overlap-confirm-button").click();
+    await settle();
+
+    const key = "550e8400-e29b-41d4-a716-446655440000";
+    expect(createManualRecordingUploadUrlMock).toHaveBeenCalledWith("camera-04", {
+      startTime: "2026-08-04T10:15:00.000Z",
+      endTime: "2026-08-04T10:15:30.000Z"
+    }, key);
+    expect(uploadManualRecordingFileMock).toHaveBeenCalledWith(
+      "https://storage.example/upload?signature=secret",
+      file,
+      "video/mp4",
+      { signal: expect.any(AbortSignal) }
+    );
+    expect(completeManualRecordingUploadMock).toHaveBeenCalledWith("camera-04", {
+      startTime: "2026-08-04T10:15:00.000Z",
+      endTime: "2026-08-04T10:15:30.000Z",
+      objectKey: "recordings/camera-04/manual.mp4"
+    }, key);
+    expect(root.textContent).toContain("녹화본을 저장했습니다.");
+    expect(root.textContent).toContain("녹화 ID");
+    expect(listAdminRecordingsMock.mock.calls.filter(([params]) => params.size === 100)).toHaveLength(2);
+  });
+
+  it("stops without issuing an upload URL when an overlapping upload is cancelled", async () => {
+    mount();
+    await settle();
+    await openManualRecording();
+    await fillManualRecording();
+
+    root.querySelector(".manual-recording-submit-button").click();
+    await settle();
+
+    expect(root.textContent).toContain("같은 시간대의 녹화본 1건");
+    root.querySelector(".manual-recording-actions .ghost-button").click();
+    await settle();
+
+    expect(root.querySelector(".manual-recording-modal")).toBeNull();
+    expect(createManualRecordingUploadUrlMock).not.toHaveBeenCalled();
+    expect(uploadManualRecordingFileMock).not.toHaveBeenCalled();
+    expect(completeManualRecordingUploadMock).not.toHaveBeenCalled();
+  });
+
+  it("retries only DB completion after the object upload already succeeded", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("550e8400-e29b-41d4-a716-446655440000");
+    listAdminRecordingsMock.mockResolvedValue(page([]));
+    completeManualRecordingUploadMock.mockRejectedValueOnce(new Error("DB 등록 실패"));
+    mount();
+    await settle();
+    await openManualRecording();
+    await fillManualRecording();
+
+    root.querySelector(".manual-recording-submit-button").click();
+    await settle();
+
+    expect(root.querySelector(".manual-retry-button").textContent).toContain("DB 등록 다시 시도");
+    expect(createManualRecordingUploadUrlMock).toHaveBeenCalledTimes(1);
+    expect(uploadManualRecordingFileMock).toHaveBeenCalledTimes(1);
+    expect(completeManualRecordingUploadMock).toHaveBeenCalledTimes(1);
+
+    root.querySelector(".manual-retry-button").click();
+    await settle();
+
+    expect(createManualRecordingUploadUrlMock).toHaveBeenCalledTimes(1);
+    expect(uploadManualRecordingFileMock).toHaveBeenCalledTimes(1);
+    expect(completeManualRecordingUploadMock).toHaveBeenCalledTimes(2);
+    expect(root.textContent).toContain("녹화본을 저장했습니다.");
+  });
+
+  it("gets a fresh presigned URL before retrying a failed storage PUT", async () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue("550e8400-e29b-41d4-a716-446655440000");
+    listAdminRecordingsMock.mockResolvedValue(page([]));
+    uploadManualRecordingFileMock.mockRejectedValueOnce(new Error("MinIO PUT 실패"));
+    mount();
+    await settle();
+    await openManualRecording();
+    await fillManualRecording();
+
+    root.querySelector(".manual-recording-submit-button").click();
+    await settle();
+
+    expect(root.querySelector(".manual-retry-button").textContent).toContain("파일 업로드 다시 시도");
+    expect(createManualRecordingUploadUrlMock).toHaveBeenCalledTimes(1);
+    expect(uploadManualRecordingFileMock).toHaveBeenCalledTimes(1);
+    expect(completeManualRecordingUploadMock).not.toHaveBeenCalled();
+
+    root.querySelector(".manual-retry-button").click();
+    await settle();
+
+    expect(createManualRecordingUploadUrlMock).toHaveBeenCalledTimes(2);
+    expect(uploadManualRecordingFileMock).toHaveBeenCalledTimes(2);
+    expect(completeManualRecordingUploadMock).toHaveBeenCalledTimes(1);
+    const keys = createManualRecordingUploadUrlMock.mock.calls.map((call) => call[2]);
+    expect(new Set(keys)).toEqual(new Set(["550e8400-e29b-41d4-a716-446655440000"]));
+    expect(root.textContent).toContain("녹화본을 저장했습니다.");
   });
 });

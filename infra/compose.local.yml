@@ -55,6 +55,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Copy infra/.env.example to infra/.env and set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Copy infra/.env.example to infra/.env and set MINIO_ROOT_PASSWORD}
       MINIO_REGION_NAME: ${MINIO_REGION:-ap-northeast-2}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MINIO_ADMIN_CORS_ORIGIN:-http://localhost:5173}
     ports:
       - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
