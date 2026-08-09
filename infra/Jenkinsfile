@@ -137,7 +137,7 @@ pipeline {
                     def mergeRequest = env.gitlabMergeRequestIid?.trim() ?: env.CHANGE_ID?.trim()
 
                     env.TARGET_BRANCH = targetBranch
-                    env.DEPLOY_PROFILE = targetBranch in ['dev', 'master'] ? targetBranch : ''
+                    env.DEPLOY_PROFILE = targetBranch == 'dev' ? targetBranch : ''
                     env.CAN_DEPLOY = env.DEPLOY_PROFILE && !mergeRequest ? 'true' : 'false'
 
                     echo "Target branch: ${targetBranch}, merge request: ${mergeRequest ? 'yes' : 'no'}, deploy: ${env.CAN_DEPLOY}"
