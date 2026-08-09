@@ -1,0 +1,223 @@
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.eyesonu.recording.mapper.AnalysisJobMapper">
+
+    <resultMap id="analysisJobResultMap" type="com.ssafy.eyesonu.recording.domain.AnalysisJob">
+        <id property="id" column="id"/>
+        <result property="caseId" column="case_id"/>
+        <result property="searchConditionId" column="search_condition_id"/>
+        <result property="recordingId" column="recording_id"/>
+        <result property="jobType" column="job_type"/>
+        <result property="status" column="status"/>
+        <result property="promptSnapshot" column="prompt_snapshot"/>
+        <result property="exclusionPromptSnapshot" column="exclusion_prompt_snapshot"/>
+        <result property="searchStartSnapshot" column="search_start_snapshot"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="searchEndSnapshot" column="search_end_snapshot"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="searchAreaSnapshot" column="search_area_snapshot"/>
+        <result property="retryCount" column="retry_count"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="requestedAt" column="requested_at"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="startedAt" column="started_at"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="claimedBy" column="claimed_by"/>
+        <result property="claimExpiresAt" column="claim_expires_at"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="completedAt" column="completed_at"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+    </resultMap>
+
+    <resultMap id="recordingAnalysisPublishSnapshotResultMap"
+               type="com.ssafy.eyesonu.recording.domain.RecordingAnalysisPublishSnapshot">
+        <result property="jobId" column="job_id"/>
+        <result property="caseId" column="case_id"/>
+        <result property="recordingId" column="recording_id"/>
+        <result property="cameraId" column="camera_id"/>
+        <result property="cameraCode" column="camera_code"/>
+        <result property="cameraName" column="camera_name"/>
+        <result property="recordingObjectKey" column="recording_object_key"/>
+        <result property="recordingFileSizeBytes" column="recording_file_size_bytes"/>
+        <result property="recordingStart" column="recording_start"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="recordingEnd" column="recording_end"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="prompt" column="prompt"/>
+        <result property="exclusionPrompt" column="exclusion_prompt"/>
+        <result property="searchStart" column="search_start"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="searchEnd" column="search_end"
+                typeHandler="com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler"/>
+        <result property="searchArea" column="search_area"/>
+        <result property="attempt" column="attempt"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.ssafy.eyesonu.recording.domain.AnalysisJob"
+            useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO analysis_jobs (
+            case_id, search_condition_id, recording_id, job_type, status,
+            prompt_snapshot, exclusion_prompt_snapshot, search_start_snapshot,
+            search_end_snapshot, search_area_snapshot,
+            retry_count, requested_at
+        ) VALUES (
+            #{caseId}, #{searchConditionId}, #{recordingId}, #{jobType}, #{status},
+            #{promptSnapshot}, #{exclusionPromptSnapshot},
+            #{searchStartSnapshot,typeHandler=com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler},
+            #{searchEndSnapshot,typeHandler=com.ssafy.eyesonu.common.persistence.mybatis.UtcInstantTypeHandler},
+            #{searchAreaSnapshot}, 0, UTC_TIMESTAMP(6)
+        )
+    </insert>
+
+    <sql id="analysisJobColumns">
+        id, case_id, search_condition_id, recording_id, job_type, status,
+        prompt_snapshot, exclusion_prompt_snapshot, search_start_snapshot,
+        search_end_snapshot, search_area_snapshot,
+        retry_count, error_message, requested_at, started_at, claimed_by,
+        claim_expires_at, completed_at
+    </sql>
+
+    <update id="claimQueued">
+        UPDATE analysis_jobs
+        SET status = 'RUNNING',
+            started_at = UTC_TIMESTAMP(6),
+            claimed_by = #{workerId},
+            claim_expires_at = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL #{leaseSeconds} SECOND),
+            completed_at = NULL,
+            error_message = NULL
+        WHERE id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS'
+          AND (
+              status = 'QUEUED'
+              OR (status = 'RUNNING'
+                  AND claim_expires_at IS NOT NULL
+                  AND claim_expires_at &lt;= UTC_TIMESTAMP(6))
+          )
+    </update>
+
+    <select id="findActiveByTarget" resultMap="analysisJobResultMap">
+        SELECT <include refid="analysisJobColumns"/>
+        FROM analysis_jobs
+        WHERE case_id = #{caseId}
+          AND search_condition_id = #{searchConditionId}
+          AND recording_id = #{recordingId}
+          AND job_type = 'RECORDING_ANALYSIS'
+          AND status IN ('QUEUED', 'RUNNING')
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findById" resultMap="analysisJobResultMap">
+        SELECT <include refid="analysisJobColumns"/>
+        FROM analysis_jobs
+        WHERE case_id = #{caseId}
+          AND id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS'
+    </select>
+
+    <select id="findRecordingAnalysisByCaseId" resultMap="analysisJobResultMap">
+        SELECT <include refid="analysisJobColumns"/>
+        FROM analysis_jobs
+        WHERE case_id = #{caseId}
+          AND job_type = 'RECORDING_ANALYSIS'
+        ORDER BY requested_at DESC, id DESC
+    </select>
+
+    <select id="findRecordingAnalysisByCaseIds" resultMap="analysisJobResultMap">
+        SELECT <include refid="analysisJobColumns"/>
+        FROM analysis_jobs
+        WHERE job_type = 'RECORDING_ANALYSIS'
+          AND case_id IN
+        <foreach collection="caseIds" item="caseId" open="(" separator="," close=")">
+            #{caseId}
+        </foreach>
+        ORDER BY requested_at DESC, id DESC
+    </select>
+
+    <select id="findRecordingAnalysisById" resultMap="analysisJobResultMap">
+        SELECT <include refid="analysisJobColumns"/>
+        FROM analysis_jobs
+        WHERE id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS'
+    </select>
+
+    <select id="findRecordingAnalysisByIdForUpdate" resultMap="analysisJobResultMap">
+        SELECT <include refid="analysisJobColumns"/>
+        FROM analysis_jobs
+        WHERE id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS'
+          AND claimed_by = #{workerId}
+        FOR UPDATE
+    </select>
+
+    <select id="findRecordingAnalysisPublishSnapshot"
+            resultMap="recordingAnalysisPublishSnapshotResultMap">
+        SELECT aj.id AS job_id,
+               aj.case_id,
+               aj.recording_id,
+               r.camera_id,
+               c.camera_code,
+               c.camera_name,
+               r.s3_key AS recording_object_key,
+               r.file_size AS recording_file_size_bytes,
+               r.start_time AS recording_start,
+               r.end_time AS recording_end,
+               aj.prompt_snapshot AS prompt,
+               aj.exclusion_prompt_snapshot AS exclusion_prompt,
+               aj.search_start_snapshot AS search_start,
+               aj.search_end_snapshot AS search_end,
+               aj.search_area_snapshot AS search_area,
+               aj.retry_count + 1 AS attempt
+        FROM analysis_jobs aj
+        INNER JOIN recordings r ON r.id = aj.recording_id
+        INNER JOIN cameras c ON c.id = r.camera_id
+        WHERE aj.id = #{jobId}
+          AND aj.case_id = #{caseId}
+          AND aj.job_type = 'RECORDING_ANALYSIS'
+    </select>
+
+    <update id="cancelActive">
+        UPDATE analysis_jobs
+        SET status = 'CANCELLED', completed_at = UTC_TIMESTAMP(6),
+            claimed_by = NULL, claim_expires_at = NULL
+        WHERE case_id = #{caseId} AND id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS'
+          AND status IN ('QUEUED', 'RUNNING')
+    </update>
+
+    <update id="retryFailed">
+        UPDATE analysis_jobs
+        SET status = 'QUEUED', retry_count = retry_count + 1,
+            error_message = NULL, started_at = NULL,
+            completed_at = NULL, requested_at = UTC_TIMESTAMP(6),
+            claimed_by = NULL, claim_expires_at = NULL
+        WHERE case_id = #{caseId} AND id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS' AND status = 'FAILED'
+    </update>
+
+    <update id="markSucceeded">
+        UPDATE analysis_jobs
+        SET status = 'SUCCEEDED', completed_at = UTC_TIMESTAMP(6), error_message = NULL,
+            claimed_by = NULL, claim_expires_at = NULL
+        WHERE case_id = #{caseId} AND id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS' AND status = 'RUNNING'
+    </update>
+
+    <update id="markSucceededForWorker">
+        UPDATE analysis_jobs
+        SET status = 'SUCCEEDED', completed_at = UTC_TIMESTAMP(6), error_message = NULL,
+            claimed_by = NULL, claim_expires_at = NULL
+        WHERE case_id = #{caseId} AND id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS' AND status = 'RUNNING'
+          AND claimed_by = #{workerId}
+    </update>
+
+    <update id="markFailed">
+        UPDATE analysis_jobs
+        SET status = 'FAILED', completed_at = UTC_TIMESTAMP(6), error_message = #{errorMessage}
+        WHERE case_id = #{caseId} AND id = #{jobId}
+          AND job_type = 'RECORDING_ANALYSIS' AND status = 'RUNNING'
+          AND claimed_by = #{workerId}
+    </update>
+</mapper>

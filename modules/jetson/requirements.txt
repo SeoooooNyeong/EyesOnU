@@ -1,0 +1,12 @@
+# Jetson(JetPack)에는 cv2/numpy/requests가 이미 시스템 파이썬에 설치돼 있다.
+# pip로 다시 깔지 말 것 — JetPack이 CUDA에 맞춰 빌드해둔 버전과 충돌한다.
+#
+# onnxruntime-gpu는 PyPI 표준 패키지(x86_64/CUDA용)가 아니라 Jetson(aarch64/Tegra)
+# 전용 wheel이 필요하다. NVIDIA Jetson Zoo 또는 JetPack 버전에 맞는 배포처에서
+# 받을 것 — 잘못된 wheel을 깔면 import는 되는데 CUDA/TensorRT 프로바이더가 없어서
+# 조용히 CPU로만 돈다(수십 배 느려짐, capture_core.py의 warn_if_cpu가 이 상황을 잡아준다).
+onnxruntime-gpu==1.24.0
+pika==1.4.2
+flatbuffers==25.12.19
+coloredlogs==15.0.1
+humanfriendly==10.0

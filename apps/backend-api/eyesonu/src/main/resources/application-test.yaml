@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: "${TEST_DB_URL:jdbc:mysql://localhost:3306/eyesonu_test?serverTimezone=UTC&characterEncoding=UTF-8}"
+    url: "${TEST_DB_URL:jdbc:mysql://localhost:3308/eyesonu_test?serverTimezone=UTC&characterEncoding=UTF-8}"
     username: ${TEST_DB_USERNAME:eyesonu_test}
     password: ${TEST_DB_PASSWORD:eyesonu_test_password}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -19,6 +19,13 @@ spring:
         auto-startup: false
   flyway:
     enabled: false
+    connect-retries: ${TEST_DB_CONNECT_RETRIES:10}
+
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false
 
 springdoc:
   api-docs:
@@ -27,11 +34,32 @@ springdoc:
     enabled: false
 
 eyesonu:
+  auth:
+    rate-limit-key-secret: eyesonu-test-rate-limit-key
+    bootstrap:
+      enabled: false
   storage:
-    s3:
-      endpoint: ${TEST_S3_ENDPOINT:http://localhost:9000}
-      region: ${TEST_S3_REGION:ap-northeast-2}
-      bucket: ${TEST_S3_BUCKET:eyesonu-test}
-      path-style-access: ${TEST_S3_PATH_STYLE_ACCESS:true}
-      access-key: ${TEST_S3_ACCESS_KEY:eyesonu-test}
-      secret-key: ${TEST_S3_SECRET_KEY:eyesonu-test-secret}
+    minio:
+      endpoint: ${TEST_MINIO_INTERNAL_ENDPOINT:http://localhost:9000}
+      public-endpoint: ${TEST_MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
+      region: ${TEST_MINIO_REGION:ap-northeast-2}
+      bucket: ${TEST_MINIO_BUCKET:eyesonu-test}
+      access-key: ${TEST_MINIO_APP_ACCESS_KEY:eyesonu-test}
+      secret-key: ${TEST_MINIO_APP_SECRET_KEY:eyesonu-test-secret}
+      connect-timeout: ${TEST_MINIO_CONNECT_TIMEOUT:3s}
+      read-timeout: ${TEST_MINIO_READ_TIMEOUT:5s}
+      call-timeout: ${TEST_MINIO_CALL_TIMEOUT:10s}
+      max-file-size-bytes: ${TEST_RECORDING_MAX_FILE_SIZE_BYTES:104857600}
+      case-photo-max-file-size-bytes: ${TEST_CASE_PHOTO_MAX_FILE_SIZE_BYTES:10485760}
+      candidate-image-max-file-size-bytes: ${TEST_CANDIDATE_IMAGE_MAX_FILE_SIZE_BYTES:10485760}
+      presigned-url-expiry: ${TEST_MINIO_PRESIGNED_URL_EXPIRY:15m}
+
+testcontainers:
+  enabled: ${TESTCONTAINERS_ENABLED:true}
+
+recording:
+  analysis:
+    outbox:
+      auto-start: ${TEST_RECORDING_ANALYSIS_OUTBOX_AUTO_START:false}
+    consumer:
+      auto-start: false

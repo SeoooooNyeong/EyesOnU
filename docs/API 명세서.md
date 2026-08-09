@@ -1,5 +1,7 @@
 # EyesOnU REST API 명세서
 
+> 문서 구분: 별도 표시가 없는 본문은 현재 `dev` 브랜치에서 호출 가능한 API 계약이다. 문서 마지막의 **목표 API 계약 — 미구현**은 후속 설계를 위한 참고이며 현재 엔드포인트로 호출할 수 없고 호환성을 보장하지 않는다.
+
 ## 1. 문서 개요
 
 이 문서는 실종 신고, 사건별 CCTV 탐색, AI 후보 검토 및 운영 이력 관리를 위한 REST API를 정의한다.
@@ -9,7 +11,7 @@
 - 데이터 형식: JSON (`application/json`)
 - 파일 업로드: `multipart/form-data`
 - JSON 필드명: `camelCase`
-- 일시 형식: UTC 기준 RFC 3339 (`2026-07-20T01:30:00Z`)
+- 일시 형식: 요청은 UTC offset이 포함된 RFC 3339, 저장·응답은 UTC `Z` (`2026-07-20T01:30:00Z`)
 - 위치 좌표: WGS84(SRID 4326), 위도 `latitude`, 경도 `longitude`
 - 실시간 WebSocket/STOMP 메시지 명세는 이 문서의 범위에서 제외한다.
 
@@ -17,11 +19,13 @@
 
 | 구분 | 인증 방식 | 주요 권한 |
 | --- | --- | --- |
-| 신고자·경찰서 접수자 | 인증 없음 | 실종 신고 접수, 사건조회번호와 전화번호를 이용한 진행 상황 조회 |
-| 관리자 | Bearer JWT (`ADMIN`) | 사건, 탐색 조건, 카메라, 후보, 작업 및 감사 로그 관리 |
-| 카메라·Jetson | `X-Device-Key` | Heartbeat, 녹화 메타데이터, AI 후보 이벤트 전송 |
+| 신고자 | 인증 없음 | 관리자가 전달한 사건조회번호와 신고 전화번호를 이용한 진행 상황 조회 |
+| 관리자 | `EYESONU_SESSION` 세션 쿠키 (`ADMIN`) | 사건, 탐색 조건, 미디어 서버, 카메라, 후보, 작업 및 감사 로그 관리 |
+| 최고 관리자 | `EYESONU_SESSION` 세션 쿠키 (`SUPER_ADMIN`) | 모든 관리자 권한과 관리자 계정 생성·조회·활성화·비활성화 |
+| 미디어 서버 | `X-Device-Key: {deviceKey}` (`ROLE_MEDIA_SERVER`) | Heartbeat, 녹화 업로드 URL 발급·완료 등록과 Jetson 후보 이벤트 전송 |
 
-> v1에서는 실종 신고와 신고자 진행 상황 조회에 별도 로그인이나 전화번호 인증을 요구하지 않는다.
+> v1 사건 등록은 ADMIN 세션을 가진 관리자만 수행한다. 신고자 진행 상황 조회에는 별도 로그인이나 전화번호 인증을 요구하지 않는다.
+> 신고자 정보는 회원 계정이 아니라 신고 당시 입력값을 보존하는 사건별 스냅샷으로 취급한다.
 
 ---
 
@@ -29,62 +33,79 @@
 
 세부 요청·응답 예시와 업무 규칙은 뒤쪽의 상세 명세에서 확인한다. 아래 경로는 모두 Base URL `/api/v1`을 기준으로 한다.
 
-### 2.1 인증·신고·진행 조회
+### 2.1 인증·진행 조회
 
 | 메서드 | 경로 | 설명 | 주요 요청·필터 | 주요 응답 |
 | --- | --- | --- | --- | --- |
-| `POST` | `/auth/admin/login` | 관리자 로그인 | `loginId`, `password` | `200`, `401` |
-| `GET` | `/admins/me` | 로그인 관리자 정보 조회 | 없음 | `200`, `401` |
-| `PATCH` | `/admins/me` | 관리자 정보 수정 | `name`, 비밀번호 변경 정보 | `200`, `400`, `401` |
-| `POST` | `/cases` | 인증 없는 실종 신고 접수 | 신고자·실종자·마지막 목격 정보, `photo` | `201`, `400`, `409`, `413`, `415` |
-| `POST` | `/cases/status-inquiries` | 신고자 사건 진행 상황 조회 | `caseNumber`, `phone` | `200`, `400`, `404`, `429` |
+| `GET` | `/auth/csrf` | CSRF 토큰 발급 | 없음 | `204` |
+| `POST` | `/auth/admin/login` | 관리자 로그인 | `loginId`, `password`, CSRF | `200`, `400`, `401`, `403`, `429`, `503` |
+| `POST` | `/auth/admin/logout` | 관리자 로그아웃 | CSRF | `204`, `403` |
+| `GET` | `/admins/me` | 로그인 관리자 정보 조회 | 세션 | `200`, `401` |
+| `PATCH` | `/admins/me` | 관리자 정보 수정 | 세션, CSRF, `name`, 비밀번호 변경 정보 | `200`, `400`, `401`, `403`, `503` |
+| `GET` | `/admins` | 관리자 계정 목록 | `SUPER_ADMIN` 세션 | `200`, `401`, `403` |
+| `POST` | `/admins` | 일반 관리자 계정 생성 | `SUPER_ADMIN` 세션, CSRF, `loginId`, `name`, `password` | `201`, `400`, `401`, `403`, `409`, `503` |
+| `PATCH` | `/admins/{adminId}/status` | 관리자 계정 활성화·비활성화 | `SUPER_ADMIN` 세션, CSRF, `enabled` | `200`, `400`, `401`, `403`, `404`, `409`, `503` |
+| `POST` | `/cases/status-inquiries` | 신고자 사건 진행 상황 조회 | `caseNumber`, `phone` | `200`, `400`, `404`, `429`, `503` |
 
 ### 2.2 관리자 사건·탐색·후보
 
 | 메서드 | 경로 | 설명 | 주요 요청·필터 | 주요 응답 |
 | --- | --- | --- | --- | --- |
+| `POST` | `/admin/cases` | 관리자 사건 등록 | 신고자·실종자·구조화 인상착의·마지막 목격 정보 | `201`, `400`, `401`, `403`, `503` |
 | `GET` | `/admin/cases` | 사건 목록 | `status`, `caseNumber`, `missingName`, 신고 기간, 페이지 조건 | `200`, `400` |
 | `GET` | `/admin/cases/{caseId}` | 사건 상세 | `caseId` | `200`, `404` |
-| `PATCH` | `/admin/cases/{caseId}` | 사건 정보 수정 | 신고 내용, 실종자·마지막 목격 정보 | `200`, `400`, `404`, `409` |
-| `PATCH` | `/admin/cases/{caseId}/status` | 종료 외 사건 상태 변경 | `status`, `reason` | `200`, `400`, `404` |
+| `PATCH` | `/admin/cases/{caseId}` | 사건 정보 수정 | 신고자, 실종자·구조화 인상착의·마지막 목격 정보 | `200`, `400`, `404`, `422` |
+| `PUT` | `/admin/cases/{caseId}/photo` | 실종자 사진 등록·교체 | multipart `photo` | `200`, `400`, `404`, `413`, `415`, `422`, `503` |
+| `DELETE` | `/admin/cases/{caseId}/photo` | 실종자 사진 제거 | `caseId` | `204`, `404`, `503` |
+| `PATCH` | `/admin/cases/{caseId}/status` | 종료 외 사건 상태 변경 | `status`, `reason` | `200`, `400`, `404`, `422` |
 | `POST` | `/admin/cases/{caseId}/close` | 사건 종료 | `reason`, `force` | `200`, `404`, `409` |
 | `GET` | `/admin/cases/{caseId}/search-conditions` | 탐색 조건 목록 | `caseId` | `200`, `404` |
-| `POST` | `/admin/cases/{caseId}/search-conditions` | 탐색 조건 생성 | 프롬프트, 시간, 구역, 임계값 | `201`, `400`, `404` |
+| `POST` | `/admin/cases/{caseId}/search-conditions` | 탐색 조건 생성 | 정규화 가능한 프롬프트, 시간, 구역 | `201`, `400`, `404` |
 | `GET` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 탐색 조건 상세 | `caseId`, `conditionId` | `200`, `404` |
 | `PATCH` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 탐색 조건 수정 | 변경할 탐색 조건 | `200`, `400`, `404` |
-| `DELETE` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 미사용 탐색 조건 삭제 | `caseId`, `conditionId` | `204`, `404`, `409` |
+| `PUT` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 탐색 조건 전체 교체 | 프롬프트와 선택 탐색 조건 전체 | `200`, `400`, `404` |
+| `DELETE` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 미사용 탐색 조건 삭제 | `caseId`, `conditionId` | `204`, `404`, `409`, `422` |
 | `GET` | `/admin/cases/{caseId}/cameras` | 사건의 탐색 카메라 목록 | `caseId` | `200`, `404` |
 | `POST` | `/admin/cases/{caseId}/cameras` | 탐색 카메라 추가·재활성화 | `cameraIds` | `200`, `400`, `404` |
-| `DELETE` | `/admin/cases/{caseId}/cameras/{cameraId}` | 탐색 카메라 제외 | `caseId`, `cameraId` | `204`, `404` |
-| `GET` | `/admin/cases/{caseId}/candidates` | 사건 후보 목록 | 판정 상태, 카메라, 탐지 기간, 최소 유사도, 페이지 조건 | `200`, `400`, `404` |
+| `DELETE` | `/admin/cases/{caseId}/cameras/{cameraId}` | 탐색 카메라 제외 | `caseId`, `cameraId` | `204`, `404`, `422` |
+| `GET` | `/admin/cases/{caseId}/route` | 확정 후보 기반 추정 동선 | `caseId` | `200`, `404` |
+| `GET` | `/admin/candidates` | 전체 후보 목록 | 선택적 사건·카메라·판정 상태·탐지 기간, 페이지·정렬 조건 | `200`, `304`, `400` |
 | `GET` | `/admin/candidates/{candidateId}` | 후보 상세 | `candidateId` | `200`, `404` |
 | `PATCH` | `/admin/candidates/{candidateId}/review` | 후보 판정 | `reviewStatus`, `reviewComment`, `version` | `200`, `400`, `404`, `409` |
-| `GET` | `/admin/cases/{caseId}/route` | 확정 후보 기반 동선 조회 | `from`, `to` | `200`, `400`, `404` |
 
-### 2.3 카메라·녹화·장치
+### 2.3 미디어 서버·카메라·녹화·장치
 
 | 메서드 | 경로 | 설명 | 주요 요청·필터 | 주요 응답 |
 | --- | --- | --- | --- | --- |
+| `GET` | `/admin/media-servers` | 미디어 서버 목록 | `status`, `search`, 페이지 조건 | `200`, `400` |
+| `POST` | `/admin/media-servers` | 미디어 서버 등록·Device Key 최초 발급 | `serverCode`, `name` | `201`, `400`, `409` |
+| `GET` | `/admin/media-servers/{mediaServerId}` | 미디어 서버 상세 | `mediaServerId` | `200`, `404` |
+| `PATCH` | `/admin/media-servers/{mediaServerId}` | 미디어 서버 정보·상태 수정 | `name`, `status` | `200`, `400`, `404`, `409` |
+| `POST` | `/admin/media-servers/{mediaServerId}/device-key/rotate` | Device Key 즉시 교체 | `mediaServerId` | `200`, `404`, `409` |
 | `GET` | `/admin/cameras` | 카메라 목록 | `status`, `search`, 페이지 조건 | `200`, `400` |
-| `POST` | `/admin/cameras` | 카메라 등록 | 이름, Raspberry Pi ID, 좌표, 주소, RTSP URL | `201`, `400`, `409` |
+| `POST` | `/admin/cameras` | 카메라 등록 | 미디어 서버, 이름, 카메라 코드, 좌표, 주소, RTSP URL | `201`, `400`, `404`, `409` |
 | `GET` | `/admin/cameras/{cameraId}` | 카메라 상세 | `cameraId` | `200`, `404` |
-| `PATCH` | `/admin/cameras/{cameraId}` | 카메라 정보 수정 | 이름, 좌표, 주소, RTSP URL | `200`, `400`, `404`, `409` |
-| `POST` | `/device/cameras/{raspberryId}/heartbeat` | 카메라 Heartbeat·상태 갱신 | `occurredAt`, `status`, `detail` | `204`, `400`, `401`, `403`, `404` |
-| `POST` | `/device/cameras/{raspberryId}/recordings` | 녹화 메타데이터 등록 | 촬영 시간, Object Key, 파일 크기, 업로드 상태 | `201`, `400`, `403`, `409` |
-| `PATCH` | `/device/recordings/{recordingId}/upload-status` | 녹화 업로드 상태 갱신 | `uploadStatus`, `fileSize` | `200`, `400`, `403`, `404` |
-| `GET` | `/admin/recordings` | 녹화 목록 | 카메라, 업로드 상태, 촬영 기간, 페이지 조건 | `200`, `400` |
-| `GET` | `/admin/recordings/{recordingId}` | 녹화 상세 | `recordingId` | `200`, `404` |
-| `POST` | `/device/candidate-events` | Jetson 후보 이벤트 등록 | 사건, 장치, 탐지 시각, 유사도, 이미지 | `201`, `200`, `400`, `401`, `403`, `404`, `422` |
+| `PATCH` | `/admin/cameras/{cameraId}` | 카메라 정보·소속 수정 | 미디어 서버, 이름, 좌표, 주소, RTSP URL | `200`, `400`, `404`, `409` |
+| `POST` | `/device/cameras/{cameraCode}/heartbeat` | 카메라 Heartbeat·상태 갱신 | `X-Device-Key`, `occurredAt`, `status`, `detail` | `204`, `400`, `401`, `403`, `404`, `429` |
+| `POST` | `/device/cameras/{cameraCode}/recording-upload-urls` | 녹화본 단일 PUT URL 발급 | `X-Device-Key`, `Idempotency-Key`, 촬영 시간 | `201`, `400`, `401`, `403`, `404`, `409`, `415`, `503` |
+| `POST` | `/device/cameras/{cameraCode}/recordings` | 업로드 완료 녹화 메타데이터 등록 | `X-Device-Key`, `Idempotency-Key`, 촬영 시간, Object Key | `201`, `200`, `400`, `401`, `403`, `404`, `409`, `413`, `415`, `422`, `503` |
+| `GET` | `/device/search-targets` | 임베디드·실시간 처리기용 활성 검색 대상 조회 | `X-Device-Key`, `If-None-Match` | `200`, `304`, `401`, `403` |
+| `POST` | `/device/candidate-event-upload-urls` | 후보 프레임·crop 이미지의 임시 업로드 URL 발급 | `X-Device-Key`, 사건, 카메라, eventId, 이미지 형식 | `201`, `400`, `401`, `403`, `404`, `422`, `503` |
+| `GET` | `/admin/recordings` | 녹화 목록 | `cameraId`, 촬영 구간, 페이지·정렬 조건 | `200`, `400` |
+| `GET` | `/admin/recordings/{recordingId}` | 녹화 상세와 재생 URL | `recordingId` | `200`, `404`, `503` |
+| `POST` | `/device/candidate-events` | 미디어 서버 후보 이벤트 등록 | `X-Device-Key`, 사건, 카메라, eventId, 탐지 시각, detections 배열 | `201`, `200`, `400`, `401`, `403`, `404`, `409`, `422`, `429`, `503` |
 
 ### 2.4 분석 작업·감사 로그
 
 | 메서드 | 경로 | 설명 | 주요 요청·필터 | 주요 응답 |
 | --- | --- | --- | --- | --- |
-| `POST` | `/admin/cases/{caseId}/analysis-jobs` | 녹화 영상 분석 작업 생성 | 작업 유형, 탐색 조건, 녹화 ID 목록 | `202`, `400`, `404`, `409` |
-| `GET` | `/admin/cases/{caseId}/analysis-jobs` | 사건별 분석 작업 목록 | 상태, 작업 유형, 페이지 조건 | `200`, `404` |
-| `GET` | `/admin/analysis-jobs/{jobId}` | 분석 작업 상세 | `jobId` | `200`, `404` |
-| `POST` | `/admin/analysis-jobs/{jobId}/retry` | 실패 작업 재시도 | `jobId` | `202`, `404`, `409` |
-| `GET` | `/admin/audit-logs` | 감사 로그 조회 | 사건, 관리자, 행위, 대상, 기간, 페이지 조건 | `200`, `400`, `401`, `403` |
+| `POST` | `/admin/cases/{caseId}/recording-analysis-jobs` | 녹화 분석 작업 생성 | 탐색 조건 ID, 녹화 ID | `201`, `400`, `404`, `409` |
+| `GET` | `/admin/cases/{caseId}/recording-analysis-jobs` | 사건별 분석 작업 목록 | `caseId` | `200`, `404` |
+| `GET` | `/admin/cases/{caseId}/recording-analysis-jobs/{jobId}` | 사건별 작업 상세 | `caseId`, `jobId` | `200`, `404` |
+| `POST` | `/admin/cases/{caseId}/recording-analysis-jobs/{jobId}/cancel` | 작업 취소 | `caseId`, `jobId` | `200`, `404`, `409` |
+| `POST` | `/admin/cases/{caseId}/recording-analysis-jobs/{jobId}/retry` | 실패 작업 재시도 | `caseId`, `jobId` | `202`, `404`, `409` |
+| `GET` | `/admin/recording-analysis-jobs?caseIds=...` | 여러 사건 작업 일괄 조회 | 사건 ID 1~100개 | `200`, `400` |
+| `GET` | `/internal/recording-analysis-jobs/{jobId}/target` | AI Worker 분석 대상 및 원본 다운로드 정보 조회 | `X-Worker-Key`, `jobId` | `200`, `400`, `401`, `404`, `409`, `422`, `503` |
 
 ---
 
@@ -94,13 +115,37 @@
 
 | 헤더 | 필수 여부 | 설명 |
 | --- | --- | --- |
-| `Authorization: Bearer {token}` | 조건부 | 관리자 API 호출 시 필수 |
-| `X-Device-Key: {deviceKey}` | 조건부 | 카메라·Jetson API 호출 시 필수 |
+| `Cookie: EYESONU_SESSION={sessionId}` | 조건부 | 관리자 API 호출 시 필수. 브라우저가 자동으로 전송하는 `HttpOnly` 세션 쿠키 |
+| `X-XSRF-TOKEN: {csrfToken}` | 조건부 | 로그인과 관리자 상태 변경 API 호출 시 `XSRF-TOKEN` 쿠키와 같은 값을 전송 |
+| `X-Device-Key: msk_{deviceKeyId}.{randomSecret}` | 조건부 | 모든 `/device/**` API 호출 시 필수. `deviceKeyId`는 16자리, `randomSecret`은 64자리 소문자 16진수 |
 | `Content-Type` | 필수 | `application/json` 또는 `multipart/form-data` |
-| `Idempotency-Key` | 조건부 | 후보 이벤트 전송 시 필수인 클라이언트 생성 고유 키 |
+| `Idempotency-Key` | 조건부 | 녹화 업로드 URL 발급과 메타데이터 등록에서 함께 사용하는 canonical UUID. 후보 이벤트 등록은 payload의 `eventId`로 중복을 제어한다. |
 | `X-Request-Id` | 선택 | 호출 추적용 ID. 없으면 서버에서 생성 |
 
-### 3.2 성공 응답
+관리자 세션·CSRF 규칙:
+
+- 세션 쿠키 이름은 `EYESONU_SESSION`이며 `HttpOnly`, `SameSite=Lax`, `Path=/` 속성을 사용한다. 운영 프로필에서는 `Secure` 속성도 사용한다.
+- 세션 유효 시간은 마지막 요청부터 30분이며, 관리자 한 명당 세션 하나만 유지한다. 새 로그인은 기존 세션을 만료시킨다.
+- 브라우저는 로그인 전에 `GET /api/v1/auth/csrf`를 호출하고, 응답 쿠키 `XSRF-TOKEN`의 값을 로그인 요청의 `X-XSRF-TOKEN` 헤더에 담는다.
+- 로그인 성공 또는 로그아웃 후에는 `GET /api/v1/auth/csrf`를 다시 호출해 새로운 CSRF 토큰을 사용한다.
+- `GET` 관리자 API는 세션만 필요하고, `POST`·`PATCH`·`DELETE` 관리자 API는 세션과 CSRF 토큰이 모두 필요하다.
+- 인증 API, `/admins/**`, 사건 진행 조회 API의 성공·오류 응답에는 `Cache-Control: no-store`를 적용한다.
+- Device Key 원문을 반환하는 미디어 서버 등록·키 교체 응답과 presigned 녹화 업로드 URL 응답에도 `Cache-Control: no-store`를 적용한다.
+
+### 3.2 미디어 서버 Device Key 인증
+
+- `/api/v1/device/**`는 관리자 세션과 분리된 Stateless API다. 세션을 생성하지 않고 CSRF 검사에서 제외하며 `ROLE_MEDIA_SERVER` 권한이 필요하다.
+- Device Key는 중앙 서버가 `msk_<deviceKeyId>.<randomSecret>` 형식으로 생성한다. `deviceKeyId`는 16자리 소문자 16진수이며, `randomSecret`은 암호학적으로 안전한 32바이트 난수를 64자리 소문자 16진수로 표현한다.
+- `deviceKeyId`는 미디어 서버를 조회하기 위한 공개 식별자이며, `randomSecret`만 bcrypt 또는 Argon2 계열의 적응형 단방향 해시로 저장한다.
+- Device Key 원문은 최초 발급과 키 교체 응답에서 각각 한 번만 반환하며 중앙 서버의 DB와 로그에 저장하지 않는다.
+- 인증 필터는 `X-Device-Key` 헤더와 형식을 확인하고, `deviceKeyId`로 미디어 서버를 조회한 뒤 상태와 secret 해시를 검증한다.
+- 인증에 성공하면 `mediaServerId`, `serverCode`, `ROLE_MEDIA_SERVER`를 가진 `MediaServerPrincipal`을 SecurityContext에 저장하고 `lastAuthenticatedAt`을 갱신한다.
+- 서비스 계층은 요청의 `cameraCode`가 인증된 `mediaServerId` 소속인지 검사한다. 다른 미디어 서버 소속이면 `403 ACCESS_DENIED`를 반환한다.
+- 헤더 누락은 `401 AUTHENTICATION_REQUIRED`, 형식 오류·미등록 ID·secret 불일치·`INACTIVE`·`REVOKED` 상태는 원인을 구분하지 않고 `401 INVALID_DEVICE_KEY`를 반환한다.
+- Device API는 HTTPS로만 제공한다. Device Key를 URL·Query Parameter·요청 로그·오류 로그에 포함하지 않으며 IP 제한은 보조 통제로만 사용한다.
+- 미디어 서버마다 서로 다른 Device Key를 사용하며 카메라, Jetson 또는 다른 미디어 서버와 공유하지 않는다. Jetson의 후보 탐지 결과는 해당 카메라를 관리하는 미디어 서버가 중앙 서버로 전달한다.
+
+### 3.3 성공 응답
 
 단건 응답:
 
@@ -135,39 +180,43 @@
 
 생성 API는 `201 Created`와 생성된 리소스를 반환한다. 응답 본문이 필요 없는 삭제 API는 `204 No Content`를 반환한다.
 
-### 3.3 오류 응답
+### 3.4 오류 응답
+
+오류 응답:
 
 ```json
 {
   "timestamp": "2026-07-20T01:30:00Z",
   "status": 400,
   "code": "VALIDATION_ERROR",
-  "message": "요청 값이 올바르지 않습니다.",
-  "fieldErrors": [
-    {
-      "field": "searchEnd",
-      "reason": "searchStart보다 빠를 수 없습니다."
-    }
-  ],
-  "traceId": "42a90b7d6bbf4f38"
+  "message": "요청 값이 올바르지 않습니다."
 }
 ```
 
+| 필드 | 필수 여부 | 설명 |
+| --- | --- | --- |
+| `timestamp` | 필수 | 오류 발생 시각 |
+| `status` | 필수 | HTTP 상태 코드 |
+| `code` | 필수 | 클라이언트가 분기 처리할 오류 코드 |
+| `message` | 필수 | 사용자에게 표시 가능한 오류 메시지 |
+| `fieldErrors` | 선택 | 필드별 검증 실패 정보 |
+| `traceId` | 선택 | 서버 로그 추적 ID |
+
 | HTTP 상태 | 공통 오류 코드 | 사용 조건 |
 | --- | --- | --- |
-| `400 Bad Request` | `INVALID_REQUEST`, `VALIDATION_ERROR`, `INVALID_STATE_TRANSITION` | 형식 오류, 필드 검증 실패, 허용되지 않은 상태 전이 |
-| `401 Unauthorized` | `AUTHENTICATION_REQUIRED`, `INVALID_TOKEN`, `INVALID_DEVICE_KEY` | 인증 정보 누락·만료·위조 |
+| `400 Bad Request` | `INVALID_REQUEST`, `VALIDATION_ERROR`, `CURRENT_PASSWORD_MISMATCH`, `INVALID_STATE_TRANSITION` | 형식 오류, 필드 검증 실패, 현재 비밀번호 불일치, 허용되지 않은 상태 전이 |
+| `401 Unauthorized` | `AUTHENTICATION_REQUIRED`, `SESSION_EXPIRED`, `INVALID_CREDENTIALS`, `INVALID_DEVICE_KEY` | 관리자 세션 누락·만료, 로그인 정보 불일치 또는 장치 인증 실패 |
 | `403 Forbidden` | `ACCESS_DENIED` | 역할 또는 장치 권한 부족 |
-| `404 Not Found` | `RESOURCE_NOT_FOUND`, `INQUIRY_NOT_FOUND` | 리소스 없음 또는 사건조회번호·전화번호 불일치 |
-| `409 Conflict` | `DUPLICATE_RESOURCE`, `OPTIMISTIC_LOCK_CONFLICT`, `CASE_CLOSE_CONFLICT` | 중복 생성, 버전 충돌, 종료 조건 불충족 |
+| `404 Not Found` | `RESOURCE_NOT_FOUND`, `INQUIRY_NOT_FOUND`, `ADMIN_NOT_FOUND` | 리소스 없음 또는 사건조회번호·전화번호 불일치 |
+| `409 Conflict` | `DUPLICATE_RESOURCE`, `ADMIN_LOGIN_ID_CONFLICT`, `SELF_DEACTIVATION_FORBIDDEN`, `LAST_SUPER_ADMIN_REQUIRED`, `IDEMPOTENCY_KEY_CONFLICT`, `RECORDING_ALREADY_REGISTERED`, `RESOURCE_STATE_CONFLICT`, `OPTIMISTIC_LOCK_CONFLICT`, `CASE_CLOSE_CONFLICT` | 중복 생성, 관리자 상태 충돌, 멱등 키 충돌, 완료 녹화 URL 재발급, 리소스 상태 충돌, 버전 충돌, 종료 조건 불충족 |
 | `413 Payload Too Large` | `FILE_TOO_LARGE` | 허용 용량을 초과한 파일 |
-| `415 Unsupported Media Type` | `UNSUPPORTED_MEDIA_TYPE` | 지원하지 않는 이미지·영상 형식 |
-| `422 Unprocessable Entity` | `BUSINESS_RULE_VIOLATION` | 문법상 유효하지만 업무 규칙을 위반한 요청 |
-| `429 Too Many Requests` | `RATE_LIMIT_EXCEEDED` | 로그인·사건 진행 조회 등 요청 허용 횟수 초과 |
+| `415 Unsupported Media Type` | `UNSUPPORTED_MEDIA_TYPE` | 지원하지 않는 요청 Content-Type 또는 이미지·영상 형식 |
+| `422 Unprocessable Entity` | `BUSINESS_RULE_VIOLATION`, `STORAGE_OBJECT_NOT_FOUND`, `STORAGE_OBJECT_INVALID` | 업무 규칙 위반, 녹화 객체 미존재 또는 사용할 수 없는 저장소 객체 |
+| `429 Too Many Requests` | `RATE_LIMIT_EXCEEDED` | 로그인·사건 진행 조회·Device 인증 또는 요청 허용 횟수 초과 |
 | `500 Internal Server Error` | `INTERNAL_SERVER_ERROR` | 처리되지 않은 서버 오류 |
-| `503 Service Unavailable` | `STORAGE_UNAVAILABLE`, `ANALYSIS_SERVICE_UNAVAILABLE` | 저장소 또는 분석 시스템 일시 장애 |
+| `503 Service Unavailable` | `DATABASE_UNAVAILABLE`, `AUTHENTICATION_UNAVAILABLE`, `ADMIN_UPDATE_FAILED`, `STORAGE_UNAVAILABLE`, `ANALYSIS_SERVICE_UNAVAILABLE` | 데이터베이스, 인증, 저장소 또는 분석 시스템 일시 장애 |
 
-### 3.4 페이지네이션과 정렬
+### 3.5 페이지네이션과 정렬
 
 | 파라미터 | 기본값 | 제한 | 설명 |
 | --- | --- | --- | --- |
@@ -177,22 +226,29 @@
 
 잘못된 정렬 필드는 `400 VALIDATION_ERROR`로 처리한다.
 
-### 3.5 파일과 민감 정보
+### 3.6 파일과 민감 정보
 
-- `password`, `photoS3Key`, `imageS3Key`, `clipS3Key`, `s3Key`, `rtspUrl`, Device Key는 외부 응답에 노출하지 않는다.
-- 사진·후보 이미지·클립은 만료 시간이 있는 `photoUrl`, `imageUrl`, `clipUrl`로 반환한다.
+- `password`, `photoS3Key`, `imageS3Key`, `clipS3Key`, `objectKey`, `s3Key`, `rtspUrl`, `deviceKeyHash`는 외부 응답에 노출하지 않는다.
+- Device Key 원문은 미디어 서버 등록·키 교체 응답에서만 한 번 반환하며 이후 다시 조회할 수 없다.
+- 사진·후보 이미지·클립은 만료 시간이 있는 `photoUrl`, `imageUrl`, `clipUrl`로 반환한다. 녹화 `videoUrl`은 관리자 상세 응답에만 포함한다.
 - URL 만료 시 리소스를 다시 조회해 새로운 URL을 발급받는다.
-- 지원 이미지 형식은 JPEG·PNG·WebP, 지원 영상 형식은 MP4(H.264)를 기본으로 한다.
-- 파일 크기 제한은 배포 환경 설정값을 따르며, 초과 시 `413 FILE_TOO_LARGE`를 반환한다.
+- 지원 이미지 형식은 JPEG·PNG·WebP, 녹화 생성 주체가 업로드하는 영상 형식은 MP4(H.264)를 기본으로 한다. 녹화 등록 API는 서버 생성 `.mp4` 객체 키, 저장소 메타데이터와 앞 12바이트의 ISO BMFF `ftyp` 시그니처를 검증하며 H.264 코덱은 검사하지 않는다.
+- 사건 사진은 최대 10 MiB이며 선언된 Content-Type과 실제 JPEG·PNG·WebP 파일 시그니처가 일치해야 한다.
+- 녹화 파일 제한은 모든 환경에서 `104857600`바이트(100 MiB)다. 배포 storage Nginx가 초과 PUT을 차단하고, 완료 등록 시 HEAD/stat에서 확인한 실제 크기가 제한을 초과하면 `413 FILE_TOO_LARGE`를 반환한다.
 
-### 3.6 주요 검증 규칙
+### 3.7 주요 검증 규칙
 
-- `phone`, `caseNumber`, `raspberryId`, `loginId`는 앞뒤 공백을 제거한 후 검증한다.
+- `caseNumber`는 앞뒤 공백을 제거하고 대문자로 변환한 뒤 검증한다. 형식은 `EFU-`와 Crockford Base32 26자로 구성된 총 30자 문자열이다.
+- `phone`은 ASCII 숫자(`0`~`9`), ASCII 하이픈(`-`), ASCII 공백(`U+0020`)만 허용한다. 하이픈과 공백을 제거한 정규화 결과가 숫자 10~11자리여야 하며, 그 밖의 문자·공백 문자는 제거하지 않고 검증 오류로 거부한다.
+- `cameraCode`는 앞뒤 공백을 제거한 후 검증한다. `loginId`는 앞뒤 공백을 제거하고 소문자로 변환한다.
 - 위도는 `-90`~`90`, 경도는 `-180`~`180` 범위여야 한다.
 - `lastSeenLat`와 `lastSeenLng`는 함께 제공하거나 모두 생략한다.
-- `similarity`, `similarityThreshold`는 `0.0000`~`1.0000` 범위여야 한다.
+- 후보 탐지 결과의 `similarity`는 `0.0000`~`1.0000` 범위여야 한다.
+- `similarityThreshold`는 관리자·Device·녹화 분석 API 계약에 포함하지 않는다. 후보 선별 임계값은 Jetson 또는 AI Worker가 모델 버전에 맞춰 관리하는 실행 주체 내부 정책이다.
 - 탐색 종료 시각은 탐색 시작 시각보다 빠를 수 없다.
-- 클라이언트는 S3 Key, 생성·수정 시각, 검토 관리자 ID를 직접 지정할 수 없다.
+- 관리자·브라우저 클라이언트는 내부 저장소 object key, 생성·수정 시각, 검토 관리자 ID를 직접 지정할 수 없다. 인증된 미디어 서버도 녹화 등록에는 URL 발급 응답에서 받은 서버 생성 `objectKey`만 제공할 수 있다.
+
+로그인과 사건 진행 조회의 현행 Rate Limit은 실패 기준 10분 동안 동일 IP·식별자 조합 5회, 동일 IP 전체 30회다. 성공하면 해당 IP·식별자 조합의 실패 횟수는 초기화된다.
 
 ---
 
@@ -211,13 +267,16 @@
 - `CLOSED` 전이는 사건 종료 API를 통해서만 수행한다.
 - 사건 종료 시 미처리 후보 또는 실행 중인 분석 작업이 있으면 `409 CASE_CLOSE_CONFLICT`를 반환한다.
 - 종료된 사건은 수정·탐색·후보 등록이 불가능하며 다시 열기 API는 v1에서 제공하지 않는다.
+- `RECEIVED`, `CANDIDATE_FOUND`, `FIELD_SEARCH` 중 어느 상태에서든 `SEARCHING`으로 전환하려면 `realtimeUsable=true`인 탐색 조건과 활성 사건 카메라가 각각 하나 이상이어야 한다. 충족하지 않으면 `422 BUSINESS_RULE_VIOLATION`을 반환한다.
+- `SEARCHING` 전환 성공은 트랜잭션 커밋 후 실시간 검색 대상 변경 알림을 발행해 Device가 최신 snapshot을 다시 조회하게 한다. 이 상태 변경 자체는 `analysis_jobs`를 생성하거나 녹화 분석 outbox를 등록하지 않는다.
 
 ### 4.2 기타 상태값
 
 | 구분 | 값 |
 | --- | --- |
+| `AdminRole` | `SUPER_ADMIN`, `ADMIN` |
+| `MediaServerStatus` | `ACTIVE`, `INACTIVE`, `REVOKED` |
 | `CameraStatus` | `ONLINE`, `OFFLINE`, `ERROR` |
-| `UploadStatus` | `PENDING`, `UPLOADING`, `COMPLETED`, `FAILED` |
 | `ReviewStatus` | `PENDING`, `KEPT`, `CONFIRMED`, `REJECTED` |
 | `ClipStatus` | `PENDING`, `PROCESSING`, `READY`, `FAILED` |
 | `AnalysisJobType` | `RECORDING_ANALYSIS`, `CLIP_GENERATION` |
@@ -227,8 +286,8 @@
 
 | 구분 | 전이 규칙 |
 | --- | --- |
+| 미디어 서버 | 최초 `ACTIVE`; `ACTIVE ↔ INACTIVE`, `ACTIVE → REVOKED`, `INACTIVE → REVOKED`를 허용한다. `REVOKED`는 종단 상태이며 재활성화하거나 Device Key를 교체할 수 없다. |
 | 카메라 | 정상 Heartbeat 수신 시 `ONLINE`, 기준 시간 동안 미수신 시 `OFFLINE`, 장치 오류 보고 시 `ERROR` |
-| 녹화 업로드 | `PENDING → UPLOADING → COMPLETED` 또는 `FAILED`, 재업로드 시 `FAILED → UPLOADING` |
 | 후보 판정 | 최초 `PENDING`; 관리자는 `KEPT`, `CONFIRMED`, `REJECTED` 사이에서 재판정할 수 있으며 모든 변경을 감사 로그에 남김 |
 | 클립 | `PENDING → PROCESSING → READY` 또는 `FAILED`, 재시도 시 `FAILED → PROCESSING` |
 | 분석 작업 | `QUEUED → RUNNING → SUCCEEDED` 또는 `FAILED`; 재시도 시 `FAILED → QUEUED`이며 `retryCount` 증가 |
@@ -237,9 +296,24 @@
 
 ## 5. 인증·신고·진행 조회 API
 
-### 5.1 관리자 로그인
+### 5.1 CSRF 토큰 발급
+
+`GET /api/v1/auth/csrf`
+
+- 인증: 없음
+- 요청 본문: 없음
+- 응답: `204 No Content`
+- 응답 헤더: `Set-Cookie: XSRF-TOKEN={token}; Path=/; SameSite=Lax`
+
+응답 본문은 없다. 브라우저는 `XSRF-TOKEN` 쿠키 값을 읽어 로그인과 관리자 상태 변경 요청의 `X-XSRF-TOKEN` 헤더로 전송한다.
+
+### 5.2 관리자 로그인
 
 `POST /api/v1/auth/admin/login`
+
+- 인증: 없음
+- CSRF: 필수
+- Content-Type: `application/json`
 
 요청:
 
@@ -256,87 +330,199 @@
 {
   "timestamp": "2026-07-20T01:30:00Z",
   "data": {
-    "accessToken": "eyJhbGciOi...",
-    "tokenType": "Bearer",
-    "expiresAt": "2026-07-20T03:30:00Z",
+    "id": 1,
+    "loginId": "control01",
+    "name": "관제 관리자",
+    "role": "SUPER_ADMIN"
+  }
+}
+```
+
+로그인 성공 시 `EYESONU_SESSION` 쿠키를 발급한다. 응답 본문에 토큰을 반환하지 않으며 이후 관리자 API는 브라우저가 전송하는 세션 쿠키로 인증한다.
+
+주요 오류:
+
+| 조건 | 응답 |
+| --- | --- |
+| 요청 값 검증 실패 | `400 VALIDATION_ERROR` |
+| 로그인 정보 불일치 | `401 INVALID_CREDENTIALS` |
+| CSRF 토큰 누락 또는 불일치 | `403 ACCESS_DENIED` |
+| 로그인 시도 횟수 초과 | `429 RATE_LIMIT_EXCEEDED` |
+| 인증·데이터베이스 또는 필수 감사 로그 장애 | `503` |
+
+### 5.3 관리자 로그아웃
+
+`POST /api/v1/auth/admin/logout`
+
+- CSRF: 필수
+- 요청 본문: 없음
+- 응답: `204 No Content`
+
+인증된 세션이 있으면 해당 세션을 무효화하고 `EYESONU_SESSION`, `XSRF-TOKEN` 쿠키를 만료시킨다. 세션 유무와 관계없이 올바른 CSRF 토큰이 필요하며, 누락하거나 일치하지 않으면 `403 ACCESS_DENIED`를 반환한다.
+
+### 5.4 로그인 관리자 정보
+
+#### 5.4.1 내 정보 조회
+
+`GET /api/v1/admins/me`
+
+- 인증: 관리자 세션
+- 주요 응답: `200`, `401`
+
+응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-07-20T01:35:00Z",
+  "data": {
+    "id": 1,
+    "loginId": "control01",
+    "name": "관제 관리자",
+    "role": "SUPER_ADMIN"
+  }
+}
+```
+
+#### 5.4.2 내 정보 수정
+
+`PATCH /api/v1/admins/me`
+
+- 인증: 관리자 세션
+- CSRF: 필수
+- 주요 응답: `200`, `400`, `401`, `403`, `503`
+
+요청:
+
+```json
+{
+  "name": "통합 관제 관리자",
+  "currentPassword": "current-password",
+  "newPassword": "new-password-1234"
+}
+```
+
+응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-07-20T01:40:00Z",
+  "data": {
     "admin": {
       "id": 1,
       "loginId": "control01",
-      "name": "관제 관리자"
+      "name": "통합 관제 관리자",
+      "role": "SUPER_ADMIN"
+    },
+    "reauthenticationRequired": true
+  }
+}
+```
+
+- `name` 또는 비밀번호 변경 정보 중 하나 이상을 제공해야 한다.
+- `name`은 앞뒤 공백을 제거한 1~50자 문자열이다.
+- 비밀번호 변경 시 `currentPassword`와 `newPassword`를 함께 제공해야 한다.
+- 새 비밀번호는 12~64자이며 UTF-8 기준 72바이트 이하여야 한다.
+- 현재 비밀번호가 일치하지 않으면 `400 CURRENT_PASSWORD_MISMATCH`를 반환한다.
+- 이름만 변경하면 `reauthenticationRequired=false`이며 현재 세션을 유지한다.
+- 비밀번호를 변경하면 `reauthenticationRequired=true`를 반환한 뒤 해당 관리자의 모든 세션을 종료한다.
+
+### 5.5 관리자 계정 관리
+
+관리자 계정 관리 API는 `SUPER_ADMIN`만 호출할 수 있다. `ADMIN` 세션은 `403 ACCESS_DENIED`를 반환한다.
+
+#### 5.5.1 관리자 계정 목록
+
+`GET /api/v1/admins`
+
+- 인증: `SUPER_ADMIN` 세션
+- 응답 순서: `createdAt DESC`, `id DESC`
+- 서버 페이지네이션 없이 전체 목록을 반환한다.
+
+응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-07-20T01:45:00Z",
+  "data": [
+    {
+      "id": 1,
+      "loginId": "admin",
+      "name": "최고 관리자",
+      "role": "SUPER_ADMIN",
+      "enabled": true,
+      "createdAt": "2026-07-20T01:00:00Z"
     }
-  }
+  ]
 }
 ```
 
-### 5.2 실종 신고 접수
+#### 5.5.2 일반 관리자 계정 생성
 
-`POST /api/v1/cases`
+`POST /api/v1/admins`
 
-- 신고 접수는 경찰서에서 진행하는 것으로 가정한다.
-- 인증: 없음
-- Content-Type: `multipart/form-data`
-- `request`: 아래 JSON 구조
-- `photo`: 선택 이미지 파일
+- 인증: `SUPER_ADMIN` 세션
+- CSRF: 필수
+- 생성되는 계정의 역할은 항상 `ADMIN`, 상태는 활성이다.
 
-`request` 파트:
+요청:
 
 ```json
 {
-  "reporter": {
-    "name": "홍길동",
-    "phone": "01012345678",
-    "email": "reporter@example.com"
-  },
-  "reportContent": "마지막 연락 이후 귀가하지 않았습니다.",
-  "missingName": "김민수",
-  "gender": "MALE",
-  "ageGroup": "TWENTIES",
-  "appearance": "검은색 셔츠와 청바지, 흰색 운동화",
-  "belongings": "검은색 백팩",
-  "lastSeenTime": "2026-07-20T00:10:00Z",
-  "lastSeenLat": 37.5012345,
-  "lastSeenLng": 127.0398765,
-  "lastSeenAddress": "서울특별시 강남구"
+  "loginId": "control01",
+  "name": "1관제실 관리자",
+  "password": "initial-password-1234"
 }
 ```
 
-필수 필드: `reporter.name`, `reporter.phone`, `reportContent`, `missingName`, `appearance`, `lastSeenTime`
+응답 `201 Created`는 5.5.1의 계정 항목 형식을 사용한다.
 
-응답 `201 Created`:
+- `loginId`는 앞뒤 공백 제거와 소문자 변환 후 `[a-z0-9._-]{4,50}` 형식이어야 한다.
+- `name`은 앞뒤 공백을 제거한 1~50자 문자열이다.
+- `password`는 12~64자이며 UTF-8 기준 72바이트 이하여야 한다.
+- 중복 로그인 ID는 `409 ADMIN_LOGIN_ID_CONFLICT`를 반환한다.
+- 비밀번호 원문과 해시는 응답 및 감사 로그에 기록하지 않는다.
+
+#### 5.5.3 관리자 계정 상태 변경
+
+`PATCH /api/v1/admins/{adminId}/status`
+
+- 인증: `SUPER_ADMIN` 세션
+- CSRF: 필수
+
+요청:
 
 ```json
 {
-  "timestamp": "2026-07-20T01:30:00Z",
-  "data": {
-    "id": 101,
-    "caseNumber": "EFU-20260720-000101",
-    "status": "RECEIVED",
-    "reportedAt": "2026-07-20T01:30:00Z"
-  }
+  "enabled": false
 }
 ```
 
-서버 처리:
+응답 `200 OK`는 갱신된 5.5.1의 계정 항목 형식을 사용한다. 현재 상태와 같은 요청도 동일한 계정을 반환한다.
 
-1. `REPORTERS`를 신고 접수 정보로 생성하고 `phoneVerified=false`, `verifiedAt=null`로 저장한다.
-2. 사진을 저장한 후 내부 S3 Key를 포함하여 `CASES`를 생성한다.
-3. 사건번호를 중복되지 않게 발급하고 생성 이력을 `AUDIT_LOGS`에 기록한다.
+- 존재하지 않는 대상은 `404 ADMIN_NOT_FOUND`를 반환한다.
+- 자기 계정 비활성화는 `409 SELF_DEACTIVATION_FORBIDDEN`을 반환한다.
+- 마지막 활성 `SUPER_ADMIN` 비활성화는 `409 LAST_SUPER_ADMIN_REQUIRED`를 반환한다.
+- 비활성화에 성공하면 대상 관리자의 기존 세션을 만료시킨다.
+- 비활성 계정의 로그인은 계정 존재 여부를 노출하지 않도록 `401 INVALID_CREDENTIALS`를 반환한다.
 
-> `REPORTERS.phoneVerified`와 `verifiedAt`은 향후 인증 기능 확장을 위해 유지하며 v1 신고 흐름에서는 사용하지 않는다.
+### 5.6 사건 등록 주체
 
-### 5.3 신고자 사건 진행 조회
+공개 사건 등록 API는 제공하지 않는다. 사건 등록은 6.1의 `POST /api/v1/admin/cases`를 사용하며 ADMIN 세션과 CSRF 토큰이 필요하다. reporter-webapp은 진행 조회만 제공하고 사건 등록 화면 제거는 별도 프런트 작업으로 관리한다.
+
+### 5.7 신고자 사건 진행 조회
 
 `POST /api/v1/cases/status-inquiries`
 
 - 인증: 없음
 - Content-Type: `application/json`
 - 동일 IP 또는 전화번호의 반복 조회는 Rate Limit을 적용한다.
+- `phone`은 3.7의 공통 규칙으로 검증·정규화한 뒤 사건에 저장된 전화번호와 비교한다.
 
 요청:
 
 ```json
 {
-  "caseNumber": "EFU-20260720-000101",
+  "caseNumber": "EFU-0123456789ABCDEFGHJKMNPQRS",
   "phone": "01012345678"
 }
 ```
@@ -347,15 +533,11 @@
 {
   "timestamp": "2026-07-20T02:20:00Z",
   "data": {
-    "caseNumber": "EFU-20260720-000101",
+    "caseNumber": "EFU-0123456789ABCDEFGHJKMNPQRS",
     "status": "SEARCHING",
-    "missingName": "김민수",
-    "photoUrl": "https://media.example.com/signed/...",
-    "lastSeenTime": "2026-07-20T00:10:00Z",
-    "lastSeenAddress": "서울특별시 강남구",
     "reportedAt": "2026-07-20T01:30:00Z",
-    "closedAt": null,
-    "confirmedSightings": []
+    "updatedAt": "2026-07-20T02:20:00Z",
+    "closedAt": null
   }
 }
 ```
@@ -366,36 +548,72 @@
 | --- | --- | --- |
 | `caseNumber` | string | 사건 조회번호 |
 | `status` | CaseStatus | 현재 진행 상태 |
-| `missingName` | string | 실종자 이름 |
-| `photoUrl` | string, nullable | 실종자 사진 임시 URL |
-| `lastSeenTime` | datetime | 마지막 목격 시각 |
-| `lastSeenAddress` | string, nullable | 마지막 목격 주소 |
 | `reportedAt` | datetime | 신고 접수 시각 |
+| `updatedAt` | datetime | 사건 정보가 마지막으로 변경된 시각 |
 | `closedAt` | datetime, nullable | 사건 종료 시각 |
-| `confirmedSightings` | array | 관리자가 `CONFIRMED`로 판정한 공개 가능 목격 정보 |
 
 - 사건조회번호와 전화번호가 모두 동일한 사건에 연결될 때만 정보를 반환한다.
 - 둘 중 하나라도 일치하지 않으면 어떤 값이 틀렸는지 구분하지 않고 `404 INQUIRY_NOT_FOUND`를 반환한다.
 
-미확정 후보, 유사도, 원본 CCTV 영상, `cameraId`, 내부 관리자 정보와 감사 로그는 노출하지 않는다.
+실종자 이름·사진·마지막 목격 정보, 후보와 확정 목격 정보, 유사도, 원본 CCTV 영상, `cameraId`, 내부 관리자 정보와 감사 로그는 노출하지 않는다.
 
 ---
 
 ## 6. 관리자 사건 API
 
-이 절의 모든 엔드포인트는 별도 표기가 없으면 ADMIN Bearer JWT가 필요하다.
+이 절의 모든 엔드포인트는 별도 표기가 없으면 ADMIN 세션이 필요하며, 상태 변경 요청에는 CSRF 토큰도 필요하다.
 
 ### 6.1 사건 관리
 
 | 메서드 | 경로 | 설명 | 주요 요청·필터 | 주요 응답 |
 | --- | --- | --- | --- | --- |
+| `POST` | `/admin/cases` | 사건 등록 | 신고자, 실종자, 구조화 인상착의, 마지막 목격 정보 | `201`, `400`, `401`, `403`, `503` |
 | `GET` | `/admin/cases` | 사건 목록 | `status`, `caseNumber`, `missingName`, `reportedFrom`, `reportedTo`, 페이지 조건 | `200`, `400` |
 | `GET` | `/admin/cases/{caseId}` | 사건 상세 | Path: `caseId` | `200`, `404` |
-| `PATCH` | `/admin/cases/{caseId}` | 사건 정보 수정 | 신고 내용, 실종자 정보, 마지막 목격 정보 | `200`, `400`, `404`, `409` |
-| `PATCH` | `/admin/cases/{caseId}/status` | 종료를 제외한 상태 변경 | `status`, `reason` | `200`, `400`, `404` |
+| `PATCH` | `/admin/cases/{caseId}` | 사건 정보 수정 | 신고자, 실종자, 인상착의, 마지막 목격 정보 | `200`, `400`, `404`, `422` |
+| `PUT` | `/admin/cases/{caseId}/photo` | 선택 사진 등록·교체 | multipart `photo` | `200`, `400`, `404`, `413`, `415`, `422`, `503` |
+| `DELETE` | `/admin/cases/{caseId}/photo` | 사진 제거 | Path: `caseId` | `204`, `404` |
+| `PATCH` | `/admin/cases/{caseId}/status` | 종료를 제외한 상태 변경 | `status`, `reason` | `200`, `400`, `404`, `422` |
 | `POST` | `/admin/cases/{caseId}/close` | 사건 종료 | `reason`, `force` | `200`, `404`, `409` |
 
-목록 기본 정렬은 `reportedAt,desc`이다.
+등록 요청 예시:
+
+```json
+{
+  "reporter": {
+    "name": "홍길동",
+    "phone": "010-1234-5678",
+    "email": "reporter@example.com",
+    "relation": "보호자"
+  },
+  "reportContent": "마지막 연락 이후 귀가하지 않았습니다.",
+  "missingName": "김민수",
+  "gender": "MALE",
+  "birthYear": 2001,
+  "appearance": {
+    "hair": "짧은 검은 머리",
+    "face": null,
+    "upperClothing": "검은색 셔츠",
+    "lowerClothing": "청바지",
+    "shoes": "흰색 운동화",
+    "belongings": "검은색 백팩",
+    "bodyType": null,
+    "distinctiveFeatures": null
+  },
+  "lastSeenTime": "2026-07-20T00:10:00+09:00",
+  "lastSeenLat": 37.5012345,
+  "lastSeenLng": 127.0398765,
+  "lastSeenAddress": "서울특별시 강남구"
+}
+```
+
+- `reporter.name`, `reporter.phone`, `reportContent`, `missingName`, `gender`, `appearance`, `lastSeenTime`, `lastSeenAddress`는 필수다.
+- 인상착의 8개 항목 중 하나 이상은 공백이 아닌 값이어야 한다.
+- `birthYear`는 생략할 수 있으며 제공 시 1900년부터 현재 연도까지 허용한다.
+- 사건 생성은 JSON으로 수행하고 사진과 초기 탐색 조건·카메라는 생성된 `caseId`로 별도 호출한다.
+- 성공 시 `Location: /api/v1/admin/cases/{caseId}`와 사건 ID·사건번호·`RECEIVED` 상태·접수 시각을 반환한다.
+
+목록 기본 정렬은 `reportedAt,desc`이며 `reportedAt`, `updatedAt`, `missingName`만 정렬할 수 있다. 수정은 last-write-wins 방식이며 요청에 없는 필드는 유지하고 nullable 필드의 명시적 `null`은 삭제한다. 인상착의 부분 수정은 등록과 동일하게 `appearance` 객체 안에 변경할 항목만 담는다.
 
 사건 상세 응답 예시:
 
@@ -404,22 +622,29 @@
   "timestamp": "2026-07-20T01:40:00Z",
   "data": {
     "id": 101,
-    "caseNumber": "EFU-20260720-000101",
+    "caseNumber": "EFU-0123456789ABCDEFGHJKMNPQRS",
     "status": "SEARCHING",
     "reporter": {
       "id": 20,
       "name": "홍길동",
       "phone": "01012345678",
       "email": "reporter@example.com",
-      "phoneVerified": false,
-      "verifiedAt": null
+      "relation": "보호자"
     },
     "reportContent": "마지막 연락 이후 귀가하지 않았습니다.",
     "missingName": "김민수",
     "gender": "MALE",
-    "ageGroup": "TWENTIES",
-    "appearance": "검은색 셔츠와 청바지, 흰색 운동화",
-    "belongings": "검은색 백팩",
+    "birthYear": 2001,
+    "appearance": {
+      "hair": "짧은 검은 머리",
+      "face": null,
+      "upperClothing": "검은색 셔츠",
+      "lowerClothing": "청바지",
+      "shoes": "흰색 운동화",
+      "belongings": "검은색 백팩",
+      "bodyType": null,
+      "distinctiveFeatures": null
+    },
     "photoUrl": "https://media.example.com/signed/...",
     "lastSeenTime": "2026-07-20T00:10:00Z",
     "lastSeenLat": 37.5012345,
@@ -427,7 +652,6 @@
     "lastSeenAddress": "서울특별시 강남구",
     "reportedAt": "2026-07-20T01:30:00Z",
     "closedAt": null,
-    "createdAt": "2026-07-20T01:30:00Z",
     "updatedAt": "2026-07-20T01:35:00Z"
   }
 }
@@ -438,6 +662,11 @@
 - `force` 기본값은 `false`이다.
 - 미처리 후보 또는 실행 중인 작업이 있으면 `force=false` 요청은 `409 CASE_CLOSE_CONFLICT`를 반환한다.
 - `force=true`는 관리자 확인 후 미완료 작업을 취소하고 종료하며, 사유와 강제 종료 여부를 감사 로그에 남긴다.
+- 모든 `SEARCHING` 진입 전이는 `realtimeUsable=true`인 탐색 조건과 활성 사건 카메라를 각각 하나 이상 요구한다. 준비되지 않은 요청은 `422 BUSINESS_RULE_VIOLATION`을 반환한다.
+- `SEARCHING` 진입은 실시간 검색 대상 변경 알림을 발행하지만 녹화 분석 작업을 자동 생성하지 않는다. 녹화 분석은 `POST /admin/cases/{caseId}/recording-analysis-jobs`로 별도 등록한다.
+- 사건 자체의 `DELETE` API는 제공하지 않는다. 종료 후 보관기한 자동 파기는 후속 구현 범위다.
+- 종료 사건은 정보 수정과 사진 등록·교체를 거부하지만 개인정보 제거를 위해 사진 삭제는 허용한다.
+- 사진은 JPEG·PNG·WebP 한 장, 최대 10 MiB이며 Content-Type과 파일 시그니처가 일치해야 한다.
 
 ### 6.2 탐색 조건
 
@@ -447,27 +676,56 @@
 | `POST` | `/admin/cases/{caseId}/search-conditions` | 탐색 조건 생성 | `201`, `400`, `404` |
 | `GET` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 탐색 조건 상세 | `200`, `404` |
 | `PATCH` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 탐색 조건 수정 | `200`, `400`, `404` |
-| `DELETE` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 미사용 탐색 조건 삭제 | `204`, `404`, `409` |
+| `PUT` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 탐색 조건 전체 교체·선택 필드 초기화 | `200`, `400`, `404` |
+| `DELETE` | `/admin/cases/{caseId}/search-conditions/{conditionId}` | 미사용 탐색 조건 삭제 | `204`, `404`, `409`, `422` |
 
 생성 요청:
 
 ```json
 {
-  "prompt": "검은색 셔츠와 청바지를 입고 흰색 운동화를 신은 20대 남성",
-  "exclusionPrompt": "모자 또는 붉은색 상의",
+  "prompt": "a man wearing a black short sleeve top and blue pants",
+  "exclusionPrompt": "a person wearing a red long sleeve top and black pants",
   "searchStart": "2026-07-20T00:00:00Z",
   "searchEnd": "2026-07-20T01:30:00Z",
-  "searchArea": "Zone A, Zone B",
-  "similarityThreshold": 0.7200
+  "searchArea": "Zone A, Zone B"
 }
 ```
 
-필수 필드: `prompt`, `similarityThreshold`
+필수 필드: `prompt`
+
+응답 예시:
+
+```json
+{
+  "timestamp": "2026-07-20T01:40:00Z",
+  "data": {
+    "id": 301,
+    "caseId": 101,
+    "prompt": "a man wearing a black short sleeve top and blue pants",
+    "exclusionPrompt": "a person wearing a red long sleeve top and black pants",
+    "searchStart": "2026-07-20T00:00:00Z",
+    "searchEnd": "2026-07-20T01:30:00Z",
+    "searchArea": "Zone A, Zone B",
+    "normalizedPrompt": "a man wearing a black short sleeve top and blue pants",
+    "normalizedExclusionPrompt": "a person wearing a red long sleeve top and black pants",
+    "realtimeUsable": true,
+    "createdAt": "2026-07-20T01:35:00Z",
+    "updatedAt": "2026-07-20T01:35:00Z"
+  }
+}
+```
 
 추가 규칙:
 
+- 관리자 화면은 성별(`person`, `man`, `woman`), 상의 색, 소매 길이(`short sleeve`, `long sleeve`), 하의 색을 구조화 입력받아 canonical prompt를 만든다. 색상은 `black`, `blue`, `brown`, `green`, `gray`, `orange`, `pink`, `purple`, `red`, `white`, `yellow`만 사용한다.
+- 서버는 `prompt`와 값이 있는 `exclusionPrompt`를 `a {person|man|woman} wearing a {upperColor} {short|long} sleeve top and {lowerColor} pants` 형식으로 정규화한다. 신규·수정 후 최종 값이 정규화되지 않으면 `400 REALTIME_PROMPT_INVALID`를 반환한다.
+- `normalizedPrompt`, `normalizedExclusionPrompt`는 Device에 전달할 canonical 문장이다. 제외 조건이 없으면 `normalizedExclusionPrompt=null`이다. `realtimeUsable`은 주 프롬프트와 값이 있는 제외 조건이 모두 정규화 가능한지를 나타낸다.
+- 기존 레거시 행은 조회 시 정규화할 수 없어도 삭제하지 않는다. 이 경우 정규화 필드는 `null`, `realtimeUsable=false`이며 `SEARCHING` 준비 조건 수에 포함하지 않는다. 구조화 입력으로 다시 저장하면 정상 조건으로 전환된다.
+- `PATCH`는 제공된 필드만 변경하며 선택 필드를 비우는 전체 편집에는 `PUT`을 사용한다. `PUT`의 `prompt`는 필수이고 `exclusionPrompt`, `searchStart`, `searchEnd`, `searchArea`는 누락하거나 `null`로 보내면 초기화한다.
 - `searchStart`와 `searchEnd`는 함께 지정하는 것을 기본으로 하며, 한쪽만 제공하면 `400 VALIDATION_ERROR`이다.
+- 유사도 임계값은 요청·응답에 포함하지 않는다. 중앙 서버는 탐색 조건의 임계값을 정하거나 Device·녹화 분석 작업에 전달하지 않는다.
 - 실행 중인 분석 작업이 참조하는 조건은 삭제할 수 없으며 `409`를 반환한다.
+- 사건이 `SEARCHING`일 때 마지막 `realtimeUsable=true` 조건은 삭제할 수 없으며 `422 BUSINESS_RULE_VIOLATION`을 반환한다.
 - 생성·수정 시 변경 전후 값을 `AUDIT_LOGS`에 기록한다.
 
 ### 6.3 사건별 탐색 카메라
@@ -476,7 +734,7 @@
 | --- | --- | --- | --- |
 | `GET` | `/admin/cases/{caseId}/cameras` | 사건에 지정된 카메라 목록 | `200`, `404` |
 | `POST` | `/admin/cases/{caseId}/cameras` | 탐색 카메라 추가 또는 재활성화 | `200`, `400`, `404` |
-| `DELETE` | `/admin/cases/{caseId}/cameras/{cameraId}` | 탐색 카메라 제외 | `204`, `404` |
+| `DELETE` | `/admin/cases/{caseId}/cameras/{cameraId}` | 탐색 카메라 제외 | `204`, `404`, `422` |
 
 카메라 추가 요청:
 
@@ -489,16 +747,24 @@
 - 추가 시 `searchEnabled=true`, `selectedAt=현재 시각`, `removedAt=null`로 처리한다.
 - 제외 시 연결 데이터를 물리 삭제하지 않고 `searchEnabled=false`, `removedAt=현재 시각`으로 변경한다.
 - 동일 사건·카메라 조합은 하나만 유지한다.
+- 사건이 `SEARCHING`일 때 마지막 활성 사건 카메라는 제외할 수 없으며 `422 BUSINESS_RULE_VIOLATION`을 반환한다.
+- 조건·카메라 변경은 사건 단위 잠금으로 직렬화한다. `SEARCHING` 사건의 변경이 커밋되면 실시간 검색 대상 변경 알림을 발행하고 Device는 최신 전체 snapshot을 다시 조회한다.
 
 ### 6.4 후보 조회 및 판정
 
 | 메서드 | 경로 | 설명 | 주요 요청·필터 | 주요 응답 |
 | --- | --- | --- | --- | --- |
-| `GET` | `/admin/cases/{caseId}/candidates` | 사건 후보 목록 | `reviewStatus`, `cameraId`, `detectedFrom`, `detectedTo`, `minSimilarity`, 페이지 조건 | `200`, `400`, `404` |
+| `GET` | `/admin/candidates` | 전체 후보 목록 | `caseId`, `reviewStatus`, `cameraId`, `detectedFrom`, `detectedTo`, `page`, `size`, `sort` | `200`, `304`, `400` |
 | `GET` | `/admin/candidates/{candidateId}` | 후보 상세 | Path: `candidateId` | `200`, `404` |
 | `PATCH` | `/admin/candidates/{candidateId}/review` | 후보 판정 | `reviewStatus`, `reviewComment`, `version` | `200`, `400`, `404`, `409` |
 
-목록 기본 정렬은 `detectedTime,desc`이다.
+목록 기본 정렬은 `lastDetectedAt,desc`이며 `size`는 1~100이다. 응답에는 `ETag`와 `Cache-Control: private, no-cache, must-revalidate`가 포함되며 같은 조건으로 `If-None-Match`를 보내 변경이 없으면 `304 Not Modified`를 반환한다. 현재 응답은 `frameObjectKey`, `cropObjectKey`와 문자열 `boundingBox`를 포함한다.
+
+- 관리자 후보 목록은 내부 object key 대신 만료 시간이 있는 `cropUrl`만 반환한다.
+- 관리자 후보 상세는 `missingPhotoUrl`(실종자 기준 사진), `frameUrl`, `cropUrl`, `clipUrl`, `recordingUrl`을 반환하며, 탐지 이력은 `cropUrl`만 반환한다. `clipStatus`, `recordingStartTime`, `recordingEndTime`은 전후 클립 재생 가능 여부와 원본 녹화 구간 재생에 사용한다.
+- 후보 상세는 `cameraLatitude`, `cameraLongitude`, `cameraAddress`와 `sourceType`을 함께 반환해 관제자가 CCTV 위치와 탐지 출처를 확인할 수 있도록 한다. `clipUrl`이 없으면 클립이 준비되지 않은 상태이며, AI 유사도만으로 신원을 확정해서는 안 된다.
+- 서명 URL을 새로 발급해야 하므로 후보 조회 응답은 `Cache-Control: no-store`이며 `ETag` 기반 `304`를 사용하지 않는다.
+- 서명 URL 발급에 실패하면 `503 STORAGE_UNAVAILABLE`을 반환한다.
 
 후보 판정 요청:
 
@@ -510,37 +776,7 @@
 }
 ```
 
-응답 `200 OK`:
-
-```json
-{
-  "timestamp": "2026-07-20T02:10:00Z",
-  "data": {
-    "id": 9001,
-    "caseId": 101,
-    "camera": {
-      "id": 2,
-      "cameraName": "Zone B 출입구",
-      "latitude": 37.5020000,
-      "longitude": 127.0410000,
-      "address": "서울특별시 강남구"
-    },
-    "detectedTime": "2026-07-20T02:00:12Z",
-    "similarity": 0.8421,
-    "imageUrl": "https://media.example.com/signed/...",
-    "clipUrl": "https://media.example.com/signed/...",
-    "clipStatus": "READY",
-    "reviewStatus": "CONFIRMED",
-    "reviewComment": "신고 사진의 의상과 소지품이 일치함",
-    "reviewedBy": {
-      "id": 1,
-      "name": "관제 관리자"
-    },
-    "reviewedAt": "2026-07-20T02:10:00Z",
-    "version": 4
-  }
-}
-```
+목록 응답은 후보 ID, 사건·카메라 식별 정보, `trackId`, 최초·최종 탐지 시각, 최고·평균 유사도, 탐지 횟수, 프레임·크롭 Object Key, bounding box, 판정 상태와 버전을 반환한다. 상세 응답에는 탐지 목록과 판정 의견·관리자·시각이 추가된다.
 
 - 요청 `version`이 DB의 현재 버전과 다르면 `409 OPTIMISTIC_LOCK_CONFLICT`와 최신 후보 정보를 반환한다.
 - `CONFIRMED` 판정은 사건 상태를 자동 종료하지 않는다.
@@ -550,69 +786,127 @@
 
 `GET /api/v1/admin/cases/{caseId}/route`
 
-인증: ADMIN
+관리자가 `CONFIRMED`로 판정한 후보를 카메라 좌표와 결합해 최초 탐지 시각 오름차순으로 반환한다. 별도 동선 데이터를 저장하지 않으며 후보 판정 결과에서 매 요청마다 계산한다. 동일 시각은 `candidateId` 오름차순으로 정렬하고, 같은 카메라에서 확정된 후보도 각각 유지한다.
 
-주요 응답: `200`, `400`, `404`
-
-| 쿼리 파라미터 | 필수 | 설명 |
-| --- | --- | --- |
-| `from` | 아니요 | 조회 시작 시각 |
-| `to` | 아니요 | 조회 종료 시각 |
-
-응답은 `reviewStatus=CONFIRMED`인 후보만 `detectedTime,asc` 순서로 반환한다.
+응답 `200 OK`:
 
 ```json
 {
-  "timestamp": "2026-07-20T02:20:00Z",
+  "timestamp": "2026-08-05T08:00:00Z",
   "data": {
     "caseId": 101,
-    "latestSighting": {
-      "candidateId": 9001,
-      "detectedTime": "2026-07-20T02:00:12Z",
-      "latitude": 37.5020000,
-      "longitude": 127.0410000
-    },
-    "sightings": [
+    "caseNumber": "CASE-2026-0417",
+    "missingName": "김민수",
+    "points": [
       {
-        "candidateId": 8990,
-        "detectedTime": "2026-07-20T01:45:10Z",
-        "cameraName": "Zone A 복도",
+        "candidateId": 501,
+        "sourceType": "REALTIME",
+        "cameraId": 11,
+        "cameraCode": "camera-01",
+        "cameraName": "정문 카메라",
+        "address": "서울특별시 강남구 테헤란로 152",
         "latitude": 37.5015000,
         "longitude": 127.0402000,
-        "imageUrl": "https://media.example.com/signed/..."
-      },
-      {
-        "candidateId": 9001,
-        "detectedTime": "2026-07-20T02:00:12Z",
-        "cameraName": "Zone B 출입구",
-        "latitude": 37.5020000,
-        "longitude": 127.0410000,
-        "imageUrl": "https://media.example.com/signed/..."
+        "firstDetectedAt": "2026-08-05T07:40:12Z",
+        "lastDetectedAt": "2026-08-05T07:40:18Z",
+        "bestSimilarity": 0.9123
       }
     ]
   }
 }
 ```
 
+- `PENDING`, `KEPT`, `REJECTED` 후보는 응답에 포함하지 않는다.
+- 확정 후보가 없으면 `points: []`를 반환한다.
+- 존재하지 않는 사건은 `404 RESOURCE_NOT_FOUND`를 반환한다.
+- 응답은 `Cache-Control: no-store`이며 시간 필터와 페이지네이션은 제공하지 않는다.
+- 클라이언트가 좌표를 연결한 선은 관측 지점 간 추정선이며 실제 도로 이동 경로를 의미하지 않는다.
+
 ---
 
-## 7. 카메라 및 녹화 API
+## 7. 미디어 서버·카메라 및 녹화 API
 
-### 7.1 관리자 카메라 API
+관리자 조회 API는 ADMIN 세션이 필요하며 등록·수정·키 교체 API는 CSRF 토큰도 필요하다.
+
+### 7.1 관리자 미디어 서버 API
+
+| 메서드 | 경로 | 설명 | 주요 요청·필터 | 주요 응답 |
+| --- | --- | --- | --- | --- |
+| `GET` | `/admin/media-servers` | 미디어 서버 목록 | `status`, `search`, 페이지 조건 | `200`, `400` |
+| `POST` | `/admin/media-servers` | 미디어 서버 등록·Device Key 최초 발급 | `serverCode`, `name` | `201`, `400`, `409` |
+| `GET` | `/admin/media-servers/{mediaServerId}` | 미디어 서버 상세 | Path: `mediaServerId` | `200`, `404` |
+| `PATCH` | `/admin/media-servers/{mediaServerId}` | 이름·상태 수정 | `name`, `status` | `200`, `400`, `404`, `409` |
+| `POST` | `/admin/media-servers/{mediaServerId}/device-key/rotate` | Device Key 즉시 교체 | Path: `mediaServerId` | `200`, `404`, `409` |
+
+목록 필터의 `search`는 `serverCode`와 `name`을 대상으로 하며 기본 정렬은 `createdAt,desc`이다.
+
+등록 요청:
+
+```json
+{
+  "serverCode": "rpi5-media-01",
+  "name": "1층 미디어 서버"
+}
+```
+
+등록 응답 `201 Created`:
+
+```json
+{
+  "timestamp": "2026-07-20T01:30:00Z",
+  "data": {
+    "mediaServer": {
+      "id": 11,
+      "serverCode": "rpi5-media-01",
+      "name": "1층 미디어 서버",
+      "deviceKeyId": "0123456789abcdef",
+      "status": "ACTIVE",
+      "lastAuthenticatedAt": null,
+      "createdAt": "2026-07-20T01:30:00Z",
+      "updatedAt": "2026-07-20T01:30:00Z"
+    },
+    "deviceKey": "msk_0123456789abcdef.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
+}
+```
+
+수정 요청:
+
+```json
+{
+  "name": "1층 통합 미디어 서버",
+  "status": "INACTIVE"
+}
+```
+
+Device Key 교체 응답은 등록 응답과 같은 구조로 현재 미디어 서버 정보와 새 `deviceKey`를 반환한다.
+
+- `serverCode`와 `deviceKeyId`는 전체 미디어 서버에서 각각 고유하다.
+- 등록 시 상태는 `ACTIVE`이며 서버가 Device Key를 생성한다. 클라이언트는 `deviceKeyId`, `randomSecret`, 해시를 지정할 수 없다.
+- 등록·키 교체 응답 외의 목록·상세·수정 응답은 `deviceKey`와 `deviceKeyHash`를 포함하지 않는다.
+- Device Key 원문은 감사 로그의 변경 전후 값이나 상세 설명에도 기록하지 않는다.
+- 키 교체가 성공하는 즉시 이전 키는 사용할 수 없다. 활성 키를 하나만 보관하므로 무중단 키 교체와 키 이력은 지원하지 않는다.
+- `INACTIVE` 서버는 다시 `ACTIVE`로 전환할 수 있지만 `REVOKED`는 재활성화하거나 키를 교체할 수 없다.
+- `REVOKED` 서버의 상태 변경 또는 키 교체 요청은 `409 RESOURCE_STATE_CONFLICT`를 반환한다.
+- 미디어 서버는 물리 삭제하지 않으며 운영 중지 또는 폐기는 상태 변경으로 처리한다.
+
+### 7.2 관리자 카메라 API
 
 | 메서드 | 경로 | 설명 | 주요 요청·필터 | 주요 응답 |
 | --- | --- | --- | --- | --- |
 | `GET` | `/admin/cameras` | 카메라 목록 | `status`, `search`, 페이지 조건 | `200`, `400` |
-| `POST` | `/admin/cameras` | 카메라 등록 | 카메라·라즈베리파이 정보 | `201`, `400`, `409` |
+| `POST` | `/admin/cameras` | 카메라 등록 | 미디어 서버·카메라 식별 정보 | `201`, `400`, `404`, `409` |
 | `GET` | `/admin/cameras/{cameraId}` | 카메라 상세 | Path: `cameraId` | `200`, `404` |
-| `PATCH` | `/admin/cameras/{cameraId}` | 카메라 정보 수정 | 이름, 좌표, 주소, RTSP URL | `200`, `400`, `404`, `409` |
+| `PATCH` | `/admin/cameras/{cameraId}/name` | 카메라 이름 수정 | `cameraName` | `200`, `400`, `404` |
+| `PUT` | `/admin/cameras/{cameraId}` | 카메라 정보·소속 전체 수정 | 미디어 서버, 이름, 좌표, 주소, RTSP URL | `200`, `400`, `404` |
 
 카메라 등록 요청:
 
 ```json
 {
+  "mediaServerId": 11,
   "cameraName": "Zone A 복도",
-  "raspberryId": "RPI-ZONE-A-01",
+  "cameraCode": "camera-01",
   "latitude": 37.5015000,
   "longitude": 127.0402000,
   "address": "서울특별시 강남구",
@@ -620,16 +914,25 @@
 }
 ```
 
-- `raspberryId`는 중복될 수 없다.
+- `mediaServerId`는 카메라의 Heartbeat, 녹화와 후보 이벤트 전송을 담당하는 미디어 서버 ID이며 필수다.
+- 카메라 응답에는 소속 미디어 서버의 `id`, `serverCode`, `name`을 포함한다.
+- `cameraCode`는 영문, 숫자, 마침표(`.`), 밑줄(`_`), 하이픈(`-`)만 사용하는 외부 식별자이며 전체 카메라에서 고유하다. Device API와 MediaMTX 경로는 `cameraCode`를, 관리자 API와 DB 관계는 숫자 `cameraId`를 사용한다.
+- 수정 API에서 `mediaServerId`를 변경하면 기존 서버의 접근 권한은 즉시 사라지고 새 서버에 권한이 부여된다. 소속 변경은 감사 로그에 기록한다.
 - `rtspUrl`은 생성·수정 요청에서만 받고 조회 응답에는 포함하지 않는다.
-- 최초 상태는 `OFFLINE`이다.
+- 최초 카메라 상태는 `OFFLINE`이다.
 
-### 7.2 장치 Heartbeat
+### 7.3 미디어 서버 Heartbeat
 
-`POST /api/v1/device/cameras/{raspberryId}/heartbeat`
+`POST /api/v1/device/cameras/{cameraCode}/heartbeat`
 
-인증: `X-Device-Key`
-주요 응답: `204`, `400`, `401`, `403`, `404`
+- 인증: `X-Device-Key: {deviceKey}`
+- 주요 응답: `204`, `400`, `401`, `403`, `404`, `429`
+
+```http
+POST /api/v1/device/cameras/camera-01/heartbeat
+X-Device-Key: msk_0123456789abcdef.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+Content-Type: application/json
+```
 
 ```json
 {
@@ -639,71 +942,371 @@
 }
 ```
 
-- Device Key에 연결된 장치와 `raspberryId`가 다르면 `403 ACCESS_DENIED`이다.
-- 정상 처리 시 카메라의 `lastHeartbeat`, `status`, `updatedAt`을 갱신한다.
-- `204 No Content`를 반환한다.
+- `cameraCode`가 인증된 미디어 서버 소속이 아니면 `403 ACCESS_DENIED`를 반환한다.
+- 정상 처리 시 카메라의 `lastHeartbeat`, `status`, `updatedAt`을 갱신하고 `204 No Content`를 반환한다.
+- `lastHeartbeat`에는 인증·검증을 통과한 요청이 중앙 Spring Boot 애플리케이션 서비스에 진입한 `receivedAt`을 저장한다. 관리자 API와 프론트엔드의 필드명 및 UTC 날짜·시간 표시 형식은 유지된다.
+- `occurredAt`은 Pi5가 카메라 상태를 관측한 시각이다. UTC 오프셋을 포함한 RFC 3339 필수값 계약은 유지하지만, 이번 단계에서는 DB 저장, 상태 적용 순서, `OFFLINE` timeout 계산에 사용하지 않는다.
+- 같은 카메라의 요청은 조회 시 행 잠금을 선점하지 않는다. 상태와 `last_heartbeat`를 기대값으로 확인하는 조건부 UPDATE로 경쟁을 감지하고, 충돌한 요청만 최신 행을 잠금 조회해 재판정·재시도한다. `last_heartbeat < receivedAt` 조건은 더 과거인 서버 수신 시각이 최신 값을 덮어쓰지 못하게 한다.
+- 상태는 Pi5의 `occurredAt`이 아니라 중앙 서버 수신 순서로 적용한다. 따라서 과거에 관측한 `occurredAt`을 가진 요청이 나중에 도착하면 그 도착 순서대로 상태가 반영될 수 있다. 관측 순서까지 보장해야 하면 후속 작업에서 `last_status_occurred_at` 컬럼 또는 장치별 단조 증가 sequence를 도입한다.
+- 미디어 서버가 보내는 상태는 `ONLINE` 또는 `ERROR`이며, `OFFLINE`은 중앙 서버가 `lastHeartbeat` 기준 timeout으로 판정한다. 반복되는 `ERROR` Heartbeat도 `lastHeartbeat`를 갱신하므로 정상 수신 중인 카메라는 `OFFLINE`으로 바뀌지 않는다.
+- `detail`은 카메라 테이블에 저장하지 않는다. `ERROR`로 실제 전이될 때만 줄바꿈 등 제어 문자를 정제한 진단 로그에 제한적으로 남기며, Heartbeat마다 감사 로그를 생성하지 않는다.
+- 기본 운영값은 미디어 서버 Heartbeat 발신 주기 10초, 백엔드의 미수신 30초 후 `OFFLINE` 판정, 백엔드 상태 확인 주기 10초다. Heartbeat 발신 주기는 미디어 서버가 소유하며 미디어 서버의 `CAMERA_HEARTBEAT_INTERVAL` 설정(기본 `10s`)으로 조정한다. 중앙 서버는 Heartbeat를 생성하지 않는다. 백엔드는 `CAMERA_HEARTBEAT_OFFLINE_TIMEOUT_MS`와 `CAMERA_HEARTBEAT_STATUS_CHECK_INTERVAL_MS` 환경 변수로 `OFFLINE` 판정 기준과 상태 확인 주기를 조정할 수 있다.
 
-### 7.3 녹화 메타데이터 등록
+### 7.4 녹화 업로드·메타데이터 API
+
+미디어 서버는 먼저 서버가 생성한 object key의 presigned PUT URL을 발급받아 객체 저장소에 업로드하고, 성공한 뒤 메타데이터 등록 API로 완료를 알린다. 미디어 서버에는 MinIO 장기 자격증명을 배포하지 않는다.
 
 | 메서드 | 경로 | 인증 | 설명 | 주요 응답 |
 | --- | --- | --- | --- | --- |
-| `POST` | `/device/cameras/{raspberryId}/recordings` | Device Key | 녹화 파일 메타데이터 등록 | `201`, `400`, `403`, `409` |
-| `PATCH` | `/device/recordings/{recordingId}/upload-status` | Device Key | 업로드 상태·파일 정보 갱신 | `200`, `400`, `403`, `404` |
-| `GET` | `/admin/recordings` | ADMIN | 녹화 목록 조회 | `200`, `400` |
-| `GET` | `/admin/recordings/{recordingId}` | ADMIN | 녹화 상세 조회 | `200`, `404` |
+| `POST` | `/device/cameras/{cameraCode}/recording-upload-urls` | `X-Device-Key` | 녹화본 단일 PUT URL 발급 | `201`, `400`, `401`, `403`, `404`, `409`, `415`, `503` |
+| `POST` | `/device/cameras/{cameraCode}/recordings` | `X-Device-Key` | 업로드 완료 녹화 메타데이터 등록 | `201`, `200`, `400`, `401`, `403`, `404`, `409`, `413`, `415`, `422`, `503` |
+| `GET` | `/admin/recordings` | ADMIN 세션 | 녹화 목록 조회 | `200`, `400` |
+| `GET` | `/admin/recordings/{recordingId}` | ADMIN 세션 | 녹화 상세와 재생 URL 조회 | `200`, `404`, `503` |
+
+#### 7.4.1 녹화 업로드 URL 발급
+
+URL 발급 요청:
+
+```http
+POST /api/v1/device/cameras/camera-01/recording-upload-urls
+X-Device-Key: msk_0123456789abcdef.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+Content-Type: application/json
+```
+
+```json
+{
+  "startTime": "2026-08-04T03:15:30.123456Z",
+  "endTime": "2026-08-04T03:16:00.123456Z"
+}
+```
+
+| 필드 | 타입 | 필수 | 검증 규칙 |
+| --- | --- | --- | --- |
+| `startTime` | RFC 3339 datetime | 예 | UTC offset 필수, 소수점 최대 6자리. 서버는 같은 instant의 UTC `Z`로 정규화 |
+| `endTime` | RFC 3339 datetime | 예 | UTC offset 필수, 소수점 최대 6자리이며 `startTime`보다 커야 함 |
+
+응답 `201 Created`:
+
+```json
+{
+  "timestamp": "2026-08-04T03:16:01Z",
+  "data": {
+    "objectKey": "recordings/camera-01/2026/08/04/20260804T031530123456Z_550e8400-e29b-41d4-a716-446655440000.mp4",
+    "uploadUrl": "https://storage-dev.example.com/eyesonu-media/recordings/camera-01/2026/08/04/20260804T031530123456Z_550e8400-e29b-41d4-a716-446655440000.mp4?...",
+    "contentType": "video/mp4",
+    "expiresInSeconds": 900,
+    "maxFileSizeBytes": 104857600
+  }
+}
+```
+
+- `Idempotency-Key`는 canonical UUID 형식이며 서버가 소문자로 정규화한다. object key는 UTC 시작 시각의 6자리 마이크로초와 이 UUID로 결정한다.
+- URL 발급 내역은 DB에 저장하지 않는다. 갱신할 때는 최초 요청과 동일한 UUID, `startTime`, `endTime`을 반드시 재사용해야 같은 object key와 새 15분 URL을 얻는다. 이미 해당 UUID의 완료 등록이 존재하면 `409 RECORDING_ALREADY_REGISTERED`를 반환한다.
+- URL 응답에는 `Cache-Control: no-store`를 적용한다. 서버와 미디어 서버는 query string을 포함한 `uploadUrl` 및 `X-Device-Key`를 로그에 기록하지 않는다.
+- 미디어 서버는 PUT 전에 파일이 `1..104857600`바이트인지 확인하고, `uploadUrl`에 원본 바이트를 `Content-Type: video/mp4`로 전송한다. presigned PUT 요청에는 `X-Device-Key`를 보내지 않는다.
+- presigned PUT 자체는 파일 크기를 제한하지 않는다. 배포 storage Nginx가 100 MiB 초과 요청을 `413`으로 차단하고, 완료 등록에서도 실제 객체 크기를 다시 확인한다.
+- URL 만료 또는 전송 실패 시 최초 요청과 동일한 UUID, `startTime`, `endTime`으로 URL을 재발급받아 파일 전체를 다시 PUT한다. multipart upload는 사용하지 않는다.
+- 완료 등록이 성공하면 미디어 서버는 보관 중인 URL을 즉시 폐기하고 해당 object key에 다시 PUT하지 않는다. 완료 전에 발급된 URL은 완료 등록으로 취소되지 않고 원래 만료 시각까지 유효하므로, 업로더가 이 불변식을 지켜야 한다.
+
+오류:
+
+| 조건 | 응답 |
+| --- | --- |
+| `X-Device-Key` 누락 | `401 AUTHENTICATION_REQUIRED` |
+| Device Key 형식 오류·미등록 ID·secret 불일치·비활성 또는 폐기 서버 | `401 INVALID_DEVICE_KEY` |
+| 존재하지 않는 `cameraCode` | `404 RESOURCE_NOT_FOUND` |
+| 다른 미디어 서버 소속 `cameraCode` | `403 ACCESS_DENIED` |
+| 필수 필드·RFC 3339 offset·시간 범위·canonical UUID 형식 오류 | `400 VALIDATION_ERROR` |
+| 같은 UUID의 완료 등록이 이미 존재함 | `409 RECORDING_ALREADY_REGISTERED` |
+| presigned URL 서명 또는 저장소 연결 실패 | `503 STORAGE_UNAVAILABLE` |
+
+#### 7.4.2 녹화 등록
 
 등록 요청:
 
-```json
-{
-  "startTime": "2026-07-20T01:50:00Z",
-  "endTime": "2026-07-20T02:00:00Z",
-  "objectKey": "recordings/RPI-ZONE-A-01/2026/07/20/015000.mp4",
-  "fileSize": 104857600,
-  "uploadStatus": "PENDING"
-}
+```http
+POST /api/v1/device/cameras/camera-01/recordings
+X-Device-Key: msk_0123456789abcdef.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+Content-Type: application/json
 ```
-
-> `objectKey`는 장치 요청 필드이며 서버가 검증 후 내부 `s3Key`로 저장한다. 관리자 응답에는 `objectKey` 또는 `s3Key` 대신 필요 시 `videoUrl`을 반환한다.
-
-업로드 상태 변경:
 
 ```json
 {
-  "uploadStatus": "COMPLETED",
-  "fileSize": 104857600
+  "startTime": "2026-08-04T03:15:30.123456Z",
+  "endTime": "2026-08-04T03:16:00.123456Z",
+  "objectKey": "recordings/camera-01/2026/08/04/20260804T031530123456Z_550e8400-e29b-41d4-a716-446655440000.mp4"
 }
 ```
 
-관리자 목록 필터: `cameraId`, `uploadStatus`, `startFrom`, `startTo`, 페이지 조건. 기본 정렬은 `startTime,desc`이다.
+| 필드 | 타입 | 필수 | 검증 규칙 |
+| --- | --- | --- | --- |
+| `startTime` | RFC 3339 datetime | 예 | UTC offset 필수, 소수점 최대 6자리. 서버는 같은 instant의 UTC `Z`로 정규화 |
+| `endTime` | RFC 3339 datetime | 예 | UTC offset 필수, 소수점 최대 6자리이며 `startTime`보다 커야 함 |
+| `objectKey` | string | 예 | URL 발급 단계에서 서버가 반환한 최대 500자 키. 촬영 시작 instant와 `Idempotency-Key`로 다시 계산한 예상 키와 정확히 일치해야 함 |
+
+- 클라이언트가 임의로 만든 기존 키나 다른 UUID·시각으로 발급된 키는 허용하지 않는다. 불일치하면 `400 VALIDATION_ERROR`를 반환한다.
+- 요청의 `fileSize`와 업로드 상태 필드는 받지 않는다. 서버가 저장소에서 확인한 실제 크기를 사용하며 등록된 녹화는 곧 사용 가능한 완료본이다.
+- `Idempotency-Key`는 UUID 형식이며 이 API 안에서 인증된 `mediaServerId` 단위로 해석한다.
+- 멱등 비교 대상은 소유권 확인이 끝난 `cameraCode`, UTC instant로 정규화한 `startTime`·`endTime`, 대소문자를 보존한 `objectKey`다. JSON 공백과 필드 순서는 비교 결과에 영향을 주지 않는다.
+
+처리 순서:
+
+1. `X-Device-Key`를 인증하고 `MediaServerPrincipal`을 생성한다.
+2. 촬영 구간과 `Idempotency-Key` 형식을 검증하고 촬영 시각을 UTC instant로 정규화한 뒤 예상 `objectKey`를 다시 계산해 요청 값과 비교한다.
+3. `cameraCode`의 존재 여부와 인증된 미디어 서버 소속 여부를 검증한다.
+4. 동일 멱등 요청이 이미 성공했다면 저장소를 다시 조회하지 않고 기존 결과를 `200 OK`로 반환한다.
+5. 최초 요청이면 설정된 버킷과 `objectKey`로 HEAD/stat을 실행한다.
+6. 객체가 존재하고 실제 크기가 `1..104857600`바이트이며 저장된 Content-Type이 정확히 `video/mp4`인지 확인한다.
+7. Range GET으로 앞 12바이트를 읽고 bytes 4–7이 ISO BMFF의 `ftyp`인지 확인한다.
+8. 별도 DB 트랜잭션에서 카메라 소유권을 잠금 재확인하고 녹화와 성공 멱등 요청을 원자적으로 생성한 뒤, 생성 행을 재조회한다.
+
+- 성공한 MinIO PUT 이후 `statObject`와 Range GET은 강한 일관성을 가지므로 객체 미발견을 전파 지연으로 처리하지 않는다. 저장소 응답을 기준으로 즉시 성공·실패를 판정한다.
+- [MinIO statObject](https://docs.min.io/aistor/developers/sdk/java/api/)로 크기와 Content-Type을 조회하고 앞 12바이트만 Range GET한다. MP4 컨테이너 시그니처 외 H.264 코덱은 검사하지 않는다.
+- 전송 무결성이 필요하면 업로드 과정에서 MinIO 객체 저장소의 체크섬 기능을 사용한다. multipart ETag를 전체 파일 MD5로 간주하지 않는다.
+
+신규 등록 응답 `201 Created`:
+
+```json
+{
+  "timestamp": "2026-08-04T03:16:01Z",
+  "data": {
+    "id": 501,
+    "cameraId": 1,
+    "startTime": "2026-08-04T03:15:30.123456Z",
+    "endTime": "2026-08-04T03:16:00.123456Z",
+    "fileSize": 52428800,
+    "duplicate": false,
+    "createdAt": "2026-08-04T03:16:01Z"
+  }
+}
+```
+
+동일 요청 재전송 응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-08-04T03:16:03Z",
+  "data": {
+    "id": 501,
+    "cameraId": 1,
+    "startTime": "2026-08-04T03:15:30.123456Z",
+    "endTime": "2026-08-04T03:16:00.123456Z",
+    "fileSize": 52428800,
+    "duplicate": true,
+    "createdAt": "2026-08-04T03:16:01Z"
+  }
+}
+```
+
+- 같은 `Idempotency-Key`와 같은 요청은 최초 생성된 `id`, `fileSize`, `createdAt`을 유지한다.
+- 같은 키에 다른 요청 내용을 사용하면 `409 IDEMPOTENCY_KEY_CONFLICT`를 반환한다.
+- `objectKey`는 버킷 전체에서 대소문자를 구분해 고유하다. 다른 Idempotency-Key로 같은 객체를 등록하면 `409 DUPLICATE_RESOURCE`를 반환한다.
+- 저장소 검증에 실패하면 녹화 리소스를 생성하지 않는다. 객체 또는 저장소를 정상화한 뒤 같은 키와 같은 요청으로 재시도할 수 있다.
+
+오류:
+
+| 조건 | 응답 |
+| --- | --- |
+| `X-Device-Key` 누락 | `401 AUTHENTICATION_REQUIRED` |
+| Device Key 형식 오류·미등록 ID·secret 불일치·비활성 또는 폐기 서버 | `401 INVALID_DEVICE_KEY` |
+| 존재하지 않는 `cameraCode` | `404 RESOURCE_NOT_FOUND` |
+| 다른 미디어 서버 소속 `cameraCode` | `403 ACCESS_DENIED` |
+| 필수 필드·RFC 3339 offset·시간 범위·객체 키·UUID 형식 오류 | `400 VALIDATION_ERROR` |
+| `application/json`이 아닌 요청 | `415 UNSUPPORTED_MEDIA_TYPE` |
+| 같은 Idempotency-Key에 다른 요청 내용 사용 | `409 IDEMPOTENCY_KEY_CONFLICT` |
+| 다른 Idempotency-Key로 같은 `objectKey` 등록 | `409 DUPLICATE_RESOURCE` |
+| 저장소에 객체가 없음 | `422 STORAGE_OBJECT_NOT_FOUND` |
+| 객체 크기가 0 | `422 STORAGE_OBJECT_INVALID` |
+| 객체 크기가 100 MiB를 초과함 | `413 FILE_TOO_LARGE` |
+| 객체 Content-Type이 `video/mp4`가 아님 | `422 STORAGE_OBJECT_INVALID` |
+| 객체가 12바이트보다 짧거나 bytes 4–7이 `ftyp`가 아님 | `422 STORAGE_OBJECT_INVALID` |
+| 저장소 권한·타임아웃·연결 또는 서비스 장애 | `503 STORAGE_UNAVAILABLE` |
+
+Device 공통 rate limit은 허용량 정책이 확정된 뒤 별도 작업으로 정의하며, 이 녹화 등록 API와 OpenAPI에는 아직 `429`를 명세하지 않는다.
+
+#### 7.4.3 관리자 녹화 조회
+
+목록 요청:
+
+```http
+GET /api/v1/admin/recordings?cameraId=1&startFrom=2026-07-20T01:00:00Z&startTo=2026-07-20T03:00:00Z&page=0&size=20&sort=startTime,desc
+```
+
+| 쿼리 파라미터 | 필수 | 설명 |
+| --- | --- | --- |
+| `cameraId` | 아니요 | 특정 카메라 ID |
+| `startFrom` | 아니요 | 조회 구간 시작. RFC 3339 offset 필수, 소수점 최대 6자리 |
+| `startTo` | 아니요 | 조회 구간 끝. RFC 3339 offset 필수, 소수점 최대 6자리 |
+| `page` | 아니요 | 기본값 `0`, 0 이상 |
+| `size` | 아니요 | 기본값 `20`, `1`~`100` |
+| `sort` | 아니요 | `startTime` 또는 `createdAt`과 `asc`·`desc` 조합 |
+
+- 기간 필터는 반개방 조회 구간 `[startFrom, startTo)`과 녹화 구간이 겹치는 녹화본을 반환한다.
+- 양쪽 경계를 지정하면 `recording.startTime < startTo AND recording.endTime > startFrom`을 적용한다.
+- `startFrom`만 지정하면 `recording.endTime > startFrom`, `startTo`만 지정하면 `recording.startTime < startTo`를 적용한다.
+- `startFrom >= startTo`이면 `400 VALIDATION_ERROR`를 반환한다.
+- 기본 정렬은 `startTime,desc`이며 같은 `startTime`에서는 `id,desc`를 적용한다. 사용자 지정 정렬에서도 같은 값은 `id,desc`로 고정한다.
+
+목록 응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-07-20T03:00:00Z",
+  "data": [
+    {
+      "id": 501,
+      "camera": {
+        "id": 1,
+        "cameraCode": "camera-01",
+        "cameraName": "Zone A 복도"
+      },
+      "startTime": "2026-07-20T01:50:00Z",
+      "endTime": "2026-07-20T02:00:00Z",
+      "fileSize": 104857600,
+      "createdAt": "2026-07-20T02:00:01Z"
+    }
+  ],
+  "meta": {
+    "page": 0,
+    "size": 20,
+    "totalElements": 1,
+    "totalPages": 1,
+    "sort": "startTime,desc"
+  }
+}
+```
+
+상세 응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-07-20T03:00:05Z",
+  "data": {
+    "id": 501,
+    "camera": {
+      "id": 1,
+      "cameraCode": "camera-01",
+      "cameraName": "Zone A 복도"
+    },
+    "startTime": "2026-07-20T01:50:00Z",
+    "endTime": "2026-07-20T02:00:00Z",
+    "fileSize": 104857600,
+    "videoUrl": "https://media.example.com/signed/recording-501",
+    "createdAt": "2026-07-20T02:00:01Z"
+  }
+}
+```
+
+- 목록과 상세는 `id`, 카메라의 `id`·`cameraCode`·`cameraName`, 촬영 구간, 실제 파일 크기, 생성 시각을 반환한다.
+- 목록에는 `videoUrl`을 포함하지 않는다. 상세의 `videoUrl`은 만료되는 서명 URL이며 만료 후 상세 API를 다시 호출한다.
+- `objectKey`와 내부 `s3Key`는 목록과 상세 어느 응답에도 노출하지 않는다.
+- 상세 조회 중 서명 URL을 발급할 수 없으면 `503 STORAGE_UNAVAILABLE`을 반환한다.
 
 ---
 
 ## 8. AI 후보 이벤트 API
 
-### 8.1 후보 이벤트 등록
+### 8.1 임베디드 검색 대상 조회
+
+`GET /api/v1/device/search-targets`
+
+- 인증: `X-Device-Key: {deviceKey}`
+- 요청 본문과 쿼리 파라미터는 없다.
+- 응답은 인증된 미디어 서버가 소유한 활성 사건 카메라가 등록된 `SEARCHING` 사건 중 실시간 사용 가능한 검색 조건이 하나 이상 있는 사건만 반환한다.
+- 비활성화·삭제된 검색 조건과 카메라는 반환하지 않는다.
+- 응답은 `Cache-Control: private, no-cache, must-revalidate`를 적용한다. 임베디드는 이 API 응답을 최신 기준 데이터로 사용한다.
+
+```http
+GET /api/v1/device/search-targets
+X-Device-Key: msk_0123456789abcdef.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+정상 응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-07-30T04:00:00Z",
+  "data": [
+    {
+      "caseId": 101,
+      "caseNumber": "EFU-20260730-0001",
+      "searchConditions": [
+        {
+          "conditionId": 10,
+          "prompt": "a person wearing a black short sleeve top and blue pants",
+          "exclusionPrompt": "a person wearing a red long sleeve top and black pants",
+          "searchStart": "2026-07-30T03:00:00Z",
+          "searchEnd": "2026-07-30T12:00:00Z",
+          "searchArea": "강남역 일대"
+        }
+      ],
+      "cameras": [
+        {
+          "cameraId": 2,
+          "cameraCode": "camera-01"
+        }
+      ],
+      "updatedAt": "2026-07-30T04:00:00Z"
+    }
+  ]
+}
+```
+
+변경 없음 응답 `304 Not Modified`:
+
+```http
+HTTP/1.1 304 Not Modified
+ETag: "media-server-7-search-targets-2026-07-30T04:00:00Z"
+Cache-Control: private, no-cache, must-revalidate
+```
+
+- 디바이스는 직전 응답의 `ETag`를 `If-None-Match` 헤더로 전송한다.
+- ETag는 미디어 서버별 검색 대상 변경 버전을 나타낸다.
+- 변경이 없으면 서버는 전체 검색 대상 데이터를 다시 조회·직렬화하지 않고 `304`를 반환한다.
+
+- `updatedAt`은 해당 사건의 검색 조건·검색 카메라 변경 여부를 확인하기 위한 최신 수정 시각이다. 활성 데이터뿐 아니라 비활성화·삭제된 검색 대상의 마지막 수정 시각도 반영될 수 있다.
+- 모든 시간 필드는 JSON에서 UTC `Z`로 반환한다.
+- 실시간 임베디드 응답의 `prompt`, `exclusionPrompt`는 무료 번역 API를 사용하지 않고 서버가 검증한 canonical 문장을 반환한다. 허용 색상은 `black`, `blue`, `brown`, `green`, `gray`, `orange`, `pink`, `purple`, `red`, `white`, `yellow`이며 상의 형태는 `short sleeve` 또는 `long sleeve`만 사용한다. 문장은 `성별 → 상의 색 → 상의 형태 → 하의 색` 순서다. 예: `남성, 검은색 반팔 상의와 파란색 하의` → `a man wearing a black short sleeve top and blue pants`.
+- Device 응답에는 `similarityThreshold` 또는 동등한 임계값 필드를 포함하지 않는다. Jetson은 배포된 모델 버전에 대응하는 자체 실행 설정으로 후보 선별 임계값을 관리한다.
+- `caseId`, `caseNumber`, 검색 조건과 카메라 외 신고자 개인정보·관리자 메모·Device Key·내부 저장소 정보는 반환하지 않는다.
+- 사건에 `realtimeUsable=true`인 검색 조건이 없으면 해당 사건은 응답에서 제외한다.
+- 인증된 미디어 서버가 소유하지 않은 카메라는 응답에 포함하지 않는다.
+- 데이터가 없으면 `200 OK`와 빈 배열을 반환한다.
+
+#### 참고: 후보 이벤트 등록 이전 계약 (폐기)
+
+> 이 절은 과거의 multipart 단일 후보 계약을 보존한 참고 내용이다. 현재 구현 기준은 `8.2 후보 이벤트 등록`이며, 신규 클라이언트는 `eventId`와 `detections` 배열 계약을 사용한다.
 
 `POST /api/v1/device/candidate-events`
 
-- 인증: `X-Device-Key`
-- 주요 응답: `201`, `200`(중복 재전송), `400`, `401`, `403`, `404`, `413`, `415`, `422`
+- 인증: `X-Device-Key: {deviceKey}`
+- 주요 응답: `201`, `200`(동일 요청 재전송), `400`, `401`, `403`, `404`, `409`, `413`, `415`, `422`, `429`
 - Content-Type: `multipart/form-data`
-- 헤더 `Idempotency-Key`: 장치가 이벤트별로 생성한 고유 문자열
+- 헤더 `Idempotency-Key`: 미디어 서버가 이벤트별로 생성한 필수 UUID. 이 API 안에서 인증된 `mediaServerId` 단위로 해석
 - `metadata`: 아래 JSON 구조
 - `image`: 필수 후보 크롭 이미지
+
+```http
+POST /api/v1/device/candidate-events
+X-Device-Key: msk_0123456789abcdef.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+Idempotency-Key: 27bc8f50-5cf1-46b1-96c8-73e06f8f84ab
+Content-Type: multipart/form-data
+```
 
 `metadata` 파트:
 
 ```json
 {
   "caseId": 101,
-  "raspberryId": "RPI-ZONE-B-01",
+  "cameraCode": "camera-02",
   "detectedTime": "2026-07-20T02:00:12Z",
   "similarity": 0.8421
 }
 ```
 
-필수 필드: `caseId`, `raspberryId`, `detectedTime`, `similarity`, `image`
+필수 필드: `caseId`, `cameraCode`, `detectedTime`, `similarity`, `image`
 
 신규 등록 응답 `201 Created`:
 
@@ -741,107 +1344,309 @@
 
 검증 순서:
 
-1. Device Key와 `raspberryId`의 연결 관계를 검증한다.
-2. 사건과 카메라가 존재하고 사건이 종료되지 않았는지 검증한다.
-3. 카메라가 해당 사건의 활성 탐색 대상으로 지정됐는지 확인한다.
-4. `Idempotency-Key` 중복 여부를 확인한다.
-5. 이미지와 유사도 범위를 검증하고 이미지를 저장한다.
-6. `CANDIDATES`를 생성하고 필요한 클립 생성 작업을 `ANALYSIS_JOBS`에 등록한다.
+1. `X-Device-Key`를 인증하고 `MediaServerPrincipal`을 생성한다.
+2. `cameraCode`의 카메라가 인증된 미디어 서버 소속인지 확인한다.
+3. 사건과 카메라가 존재하고 사건이 종료되지 않았는지 검증한다.
+4. 카메라가 해당 사건의 활성 탐색 대상으로 지정됐는지 확인한다.
+5. `Idempotency-Key`와 요청 내용의 중복 여부를 확인한다.
+6. 이미지와 유사도 범위를 검증하고 이미지를 저장한다.
+7. `CANDIDATES`를 생성하고 필요한 클립 생성 작업을 `ANALYSIS_JOBS`에 등록한다.
 
 오류:
 
 | 조건 | 응답 |
 | --- | --- |
-| 미등록 Device Key | `401 INVALID_DEVICE_KEY` |
-| 다른 장치의 `raspberryId` 사용 | `403 ACCESS_DENIED` |
+| `X-Device-Key` 누락 | `401 AUTHENTICATION_REQUIRED` |
+| `X-Device-Key` 오류 또는 비활성·폐기 미디어 서버 | `401 INVALID_DEVICE_KEY` |
+| 다른 미디어 서버 소속 `cameraCode` 사용 | `403 ACCESS_DENIED` |
 | 존재하지 않는 사건·카메라 | `404 RESOURCE_NOT_FOUND` |
+| 같은 Idempotency-Key에 다른 요청 내용 사용 | `409 IDEMPOTENCY_KEY_CONFLICT` |
 | 종료된 사건 또는 비활성 탐색 카메라 | `422 BUSINESS_RULE_VIOLATION` |
-| 유사도 범위 오류·필수 필드 누락 | `400 VALIDATION_ERROR` |
+| UUID·유사도 범위 오류 또는 필수 필드 누락 | `400 VALIDATION_ERROR` |
+| 요청 속도 제한 초과 | `429 RATE_LIMIT_EXCEEDED` |
 
-> `Idempotency-Key`는 중복 요청 제어용 일시 데이터이며 ERD 엔터티의 영속 필드에는 포함하지 않는다.
+같은 `Idempotency-Key`와 같은 요청을 재전송하면 최초 생성 결과를 `200 OK`, `duplicate=true`로 반환한다. `Idempotency-Key`는 중복 요청 제어용 서버 관리 데이터이며 `CANDIDATES`의 비즈니스 필드에는 포함하지 않는다.
+
+Jetson은 후보 탐지를 수행하고 해당 카메라를 관리하는 미디어 서버에 결과를 전달한다. 중앙 서버 Device API 호출과 Device Key 보관은 미디어 서버가 담당한다.
 
 ---
+
+### 8.2 후보 이미지 업로드 URL 발급
+
+`POST /api/v1/device/candidate-event-upload-urls`
+
+- 인증: `X-Device-Key: {deviceKey}`
+- Content-Type: `application/json`
+- 지원 이미지 형식: `image/jpeg`, `image/png`
+- URL 유효 시간: 기본 15분, 응답의 `expiresInSeconds`로 확인
+- 전체 프레임 1개와 사람별 crop 이미지를 한 요청에서 함께 발급한다.
+- `objectKey`는 Jetson이 만들지 않고 백엔드가 생성한다.
+- 같은 `caseId`, `cameraCode`, `eventId`, `trackId`, `contentType`으로 다시 요청하면 같은 object key와 새 URL을 받는다.
+
+```http
+POST /api/v1/device/candidate-event-upload-urls
+X-Device-Key: msk_0123456789abcdef.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+Content-Type: application/json
+```
+
+```json
+{
+  "caseId": 101,
+  "cameraCode": "camera-01",
+  "eventId": "camera-01-20260731-000001",
+  "frame": {
+    "contentType": "image/jpeg"
+  },
+  "detections": [
+    {
+      "trackId": "track-42",
+      "contentType": "image/jpeg"
+    }
+  ]
+}
+```
+
+응답 `201 Created`:
+
+```json
+{
+  "timestamp": "2026-07-31T01:20:09.500Z",
+  "data": {
+    "frame": {
+      "objectKey": "realtime/2/11/101/abc123.../frame.jpg",
+      "uploadUrl": "https://storage.example/upload/...",
+      "contentType": "image/jpeg"
+    },
+    "detections": [
+      {
+        "trackId": "track-42",
+        "objectKey": "realtime/2/11/101/abc123.../crops/def456....jpg",
+        "uploadUrl": "https://storage.example/upload/...",
+        "contentType": "image/jpeg"
+      }
+    ],
+    "expiresInSeconds": 900
+  }
+}
+```
+
+Jetson은 각 `uploadUrl`에 응답의 `contentType`으로 이미지 바이너리만 `PUT`한다. `.jpg` 키에는 `image/jpeg`, `.png` 키에는 `image/png`를 사용해야 한다. presigned PUT은 Object Key와 만료 시간만 제한하므로 후보 이벤트 등록 전에 객체 크기와 Content-Type을 확인하고, Range GET으로 앞 8바이트를 읽어 JPEG·PNG 파일 시그니처까지 검증한다. 모든 업로드가 성공한 뒤 발급받은 `objectKey`를 사용해 후보 이벤트를 등록한다. URL이 만료되면 같은 내용으로 이 API를 다시 호출한 뒤 업로드를 재시도한다.
+
+### 8.3 후보 이벤트 등록
+
+`POST /api/v1/device/candidate-events`
+
+- 인증: `X-Device-Key: {deviceKey}`
+- Content-Type: `application/json`
+- `eventId`가 이벤트 중복 요청 방지 키 역할을 하므로 별도 `Idempotency-Key` 헤더는 사용하지 않는다.
+- 한 프레임에서 여러 사람이 탐지될 수 있으므로 `detections` 배열을 사용한다.
+- 원본 프레임과 crop 이미지는 `POST /api/v1/device/candidate-event-upload-urls`로 발급받은 URL에 먼저 업로드한 뒤 응답의 object key만 전달한다.
+- 주요 응답: `201`, `200`(동일 eventId 재전송), `400`, `401`, `403`, `404`, `409`, `422`, `429`, `503`
+
+```http
+POST /api/v1/device/candidate-events
+X-Device-Key: msk_0123456789abcdef.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+Content-Type: application/json
+```
+
+```json
+{
+  "caseId": 101,
+  "cameraCode": "camera-01",
+  "eventId": "camera-01-20260731-000001",
+  "detectedAt": "2026-07-31T01:20:10.123Z",
+  "frameObjectKey": "realtime/2/11/101/abc123.../frame.jpg",
+  "detections": [
+    {
+      "trackId": "track-42",
+      "similarity": 0.8421,
+      "cropObjectKey": "realtime/2/11/101/abc123.../crops/def456....jpg",
+      "boundingBox": {
+        "x": 120,
+        "y": 80,
+        "width": 210,
+        "height": 430
+      }
+    }
+  ]
+}
+```
+
+필수 필드:
+
+- 이벤트: `caseId`, `cameraCode`, `eventId`, `detectedAt`, `frameObjectKey`, `detections`
+- 탐지: `trackId`, `similarity`, `cropObjectKey`, `boundingBox`
+- `boundingBox` 좌표는 `x`, `y`, `width`, `height`를 사용하며 모두 0 이상이어야 한다.
+- `detectedAt`과 모든 시간 필드는 RFC 3339 형식으로 받고 UTC로 저장한다.
+- `similarity`는 `0.0~1.0` 범위다.
+
+정상 등록 응답 `201 Created`:
+
+```json
+{
+  "timestamp": "2026-07-31T01:20:10.500Z",
+  "data": {
+    "eventId": "camera-01-20260731-000001",
+    "caseId": 101,
+    "cameraId": 2,
+    "detectionCount": 1,
+    "candidateIds": [9001],
+    "duplicate": false,
+    "createdAt": "2026-07-31T01:20:10.500Z"
+  }
+}
+```
+
+동일 `eventId` 재전송 응답 `200 OK`:
+
+```json
+{
+  "timestamp": "2026-07-31T01:20:11.000Z",
+  "data": {
+    "eventId": "camera-01-20260731-000001",
+    "caseId": 101,
+    "cameraId": 2,
+    "detectionCount": 1,
+    "candidateIds": [9001],
+    "duplicate": true,
+    "createdAt": "2026-07-31T01:20:10.500Z"
+  }
+}
+```
+
+저장 구조:
+
+- `candidate_events`에는 이벤트 단위의 `eventId`, 사건, 카메라, 탐지 시각, 원본 프레임 키를 저장한다.
+- `candidate_event_detections`에는 이벤트 안의 각 탐지 결과와 bounding box를 저장한다.
+- 동일 `caseId + cameraId + trackId`가 짧은 시간 동안 반복되면 `candidates`의 `firstDetectedAt`, `lastDetectedAt`, `bestSimilarity`, `averageSimilarity`, `detectionCount`를 갱신하여 하나의 후보로 병합한다.
+- 후보 병합은 `version` 기반 낙관적 락으로 동시 수정을 제어한다.
+
+검증 순서:
+
+1. `X-Device-Key`를 인증하고 `MediaServerPrincipal`을 생성한다.
+2. DB 트랜잭션을 시작하기 전에 프레임과 crop 객체의 존재 여부, 크기, 확장자와 Content-Type 일치 여부를 확인한다.
+3. DB 트랜잭션 안에서 `cameraCode`가 인증된 미디어 서버 소속인지 확인한다.
+4. 사건이 존재하고 `SEARCHING` 상태인지 확인한다.
+5. 카메라가 해당 사건의 활성 검색 대상으로 지정됐는지 확인한다.
+6. `eventId` 중복 여부를 확인하고, 동일 eventId의 다른 내용은 거부한다.
+7. 탐지 배열, trackId, similarity, bounding box, object key를 검증한다.
+8. 이벤트와 탐지 결과를 저장하고 후보를 생성하거나 기존 후보에 병합한다.
+
+오류:
+
+| 조건 | 응답 |
+| --- | --- |
+| `X-Device-Key` 누락 | `401 AUTHENTICATION_REQUIRED` |
+| `X-Device-Key` 오류 또는 비활성·폐기 미디어 서버 | `401 INVALID_DEVICE_KEY` |
+| 다른 미디어 서버 소속 `cameraCode` 사용 | `403 ACCESS_DENIED` |
+| 존재하지 않는 사건·카메라 | `404 RESOURCE_NOT_FOUND` |
+| 종료·비탐색 상태 사건 또는 비활성 검색 카메라 | `422 BUSINESS_RULE_VIOLATION` |
+| 동일 eventId에 다른 payload 사용 | `409 EVENT_ID_CONFLICT` |
+| 필수 필드, RFC 3339, object key, 좌표 또는 유사도 오류 | `400 VALIDATION_ERROR` |
+| 이미지가 없거나 비어 있음 | `422 STORAGE_OBJECT_NOT_FOUND` 또는 `422 STORAGE_OBJECT_INVALID` |
+| 이미지가 설정된 최대 크기를 초과함 | `422 STORAGE_OBJECT_TOO_LARGE` |
+| 이미지 확장자가 JPEG·PNG가 아니거나 Content-Type과 일치하지 않음 | `422 STORAGE_OBJECT_TYPE_INVALID` 또는 `422 STORAGE_OBJECT_TYPE_MISMATCH` |
+| 저장 객체의 실제 파일 시그니처가 JPEG·PNG 형식과 일치하지 않음 | `422 STORAGE_OBJECT_CONTENT_INVALID` |
+| 스토리지 조회 실패 | `503 STORAGE_UNAVAILABLE` |
+| 요청 속도 제한 초과 | `429 RATE_LIMIT_EXCEEDED` |
+
+Jetson은 후보 탐지를 수행하고 해당 카메라를 관리하는 미디어 서버에 결과를 전달한다. 중앙 서버 Device API 호출과 Device Key 보관은 미디어 서버가 담당한다.
 
 ## 9. 분석 작업 API
 
 | 메서드 | 경로 | 인증 | 설명 | 주요 응답 |
 | --- | --- | --- | --- | --- |
-| `POST` | `/admin/cases/{caseId}/analysis-jobs` | ADMIN | 녹화 영상 분석 작업 생성 | `202`, `400`, `404`, `409` |
-| `GET` | `/admin/cases/{caseId}/analysis-jobs` | ADMIN | 사건별 분석 작업 목록 | `200`, `404` |
-| `GET` | `/admin/analysis-jobs/{jobId}` | ADMIN | 작업 상세 조회 | `200`, `404` |
-| `POST` | `/admin/analysis-jobs/{jobId}/retry` | ADMIN | 실패 작업 재시도 | `202`, `404`, `409` |
+| `POST` | `/admin/cases/{caseId}/recording-analysis-jobs` | ADMIN 세션 | 녹화 분석 작업 생성 | `201`, `400`, `404`, `409` |
+| `GET` | `/admin/cases/{caseId}/recording-analysis-jobs` | ADMIN 세션 | 사건별 작업 목록 | `200`, `404` |
+| `GET` | `/admin/cases/{caseId}/recording-analysis-jobs/{jobId}` | ADMIN 세션 | 사건별 작업 상세 | `200`, `404` |
+| `POST` | `/admin/cases/{caseId}/recording-analysis-jobs/{jobId}/cancel` | ADMIN 세션 | 작업 취소 | `200`, `404`, `409` |
+| `POST` | `/admin/cases/{caseId}/recording-analysis-jobs/{jobId}/retry` | ADMIN 세션 | 실패 작업 재시도 | `202`, `404`, `409` |
+| `GET` | `/admin/recording-analysis-jobs` | ADMIN 세션 | `caseIds`에 해당하는 작업 일괄 조회 | `200`, `400` |
 
 작업 생성 요청:
 
 ```json
 {
-  "jobType": "RECORDING_ANALYSIS",
-  "searchConditionId": 301,
-  "recordingIds": [501, 502]
+  "conditionId": 301,
+  "recordingId": 501
 }
 ```
 
-- `recordingIds`를 생략하면 사건의 활성 카메라와 탐색 시간 범위에 포함되며 업로드가 완료된 녹화본을 서버가 선정한다.
-- 선택된 각 녹화본마다 `ANALYSIS_JOBS`를 생성하며, 응답에는 생성된 작업 ID 배열을 반환한다.
+- `conditionId`와 `recordingId`는 필수 양의 정수다. 한 요청은 녹화본 하나에 대한 작업 하나를 생성한다.
 - 사건이 `CLOSED`이면 작업을 생성할 수 없다.
-- `retry`는 `FAILED` 상태에서만 허용하며, `retryCount`를 증가시키고 오류 메시지를 유지한 채 `QUEUED`로 전환한다.
+- 같은 사건·조건·녹화에 활성 작업이 있으면 중복 생성하지 않는다.
+- `cancel`과 `retry`는 서비스가 허용하는 현재 작업 상태에서만 성공한다.
 
 작업 응답 주요 필드:
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `id` | long | 작업 ID |
+| `jobId` | long | 작업 ID |
 | `caseId` | long | 사건 ID |
-| `recordingId` | long, nullable | 녹화본 분석 시 대상 ID |
-| `candidateId` | long, nullable | 클립 생성 시 후보 ID |
-| `jobType` | AnalysisJobType | 작업 종류 |
+| `conditionId` | long | 탐색 조건 ID |
+| `recordingId` | long | 녹화본 ID |
+| `jobType` | string | 현재 작업 종류 |
 | `status` | AnalysisJobStatus | 작업 상태 |
-| `retryCount` | integer | 재시도 횟수 |
-| `errorMessage` | string, nullable | 최근 실패 원인 |
+| `prompt`, `exclusionPrompt` | string, nullable | 생성 시점 탐색 문구 snapshot |
+| `searchStart`, `searchEnd`, `searchArea` | datetime/string, nullable | 생성 시점 탐색 범위 snapshot |
 | `requestedAt` | datetime | 요청 시각 |
-| `startedAt` | datetime, nullable | 시작 시각 |
-| `completedAt` | datetime, nullable | 완료 시각 |
+
+녹화 분석 작업 요청·응답과 신규 snapshot에는 `similarityThreshold`를 포함하거나 기록하지 않는다. AI Worker는 후보 선별 기준을 자체 모델 실행 설정으로 관리한다.
+
+- 녹화 분석 작업은 `searchStart`, `searchEnd`가 모두 존재하고 `searchStart < searchEnd`인 탐색 조건만 허용한다.
+- 선택한 녹화본은 반개구간 기준으로 `recording.startTime < searchEnd && recording.endTime > searchStart`를 만족해야 하며, 위반하면 `422 BUSINESS_RULE_VIOLATION`이다.
+- Worker Target 응답은 기존 `searchStart`, `searchEnd`와 함께 `recordingStart`, `recordingEnd`, `analysisStart`, `analysisEnd`를 제공한다. 실제 분석 구간은 `max(searchStart, recordingStart)`부터 `min(searchEnd, recordingEnd)`까지다.
+
+### 9.1 AI Worker 분석 대상 조회
+
+Worker는 작업을 선점한 뒤 다음 API로 최신 분석 대상과 원본 녹화 다운로드 정보를 조회한다.
+
+```http
+GET /api/v1/internal/recording-analysis-jobs/{jobId}/target
+X-Worker-Key: <worker-key>
+```
+
+```json
+{
+  "timestamp": "2026-08-03T00:31:02Z",
+  "data": {
+    "jobId": 42,
+    "caseId": 7,
+    "recordingId": 15,
+    "cameraId": 3,
+    "cameraCode": "CAM-003",
+    "cameraName": "Front",
+    "recordingObjectKey": "recordings/CAM-003/2026/08/03/video.mp4",
+    "recordingDownloadUrl": "https://storage.example.com/eyesonu-media/recordings/CAM-003/2026/08/03/video.mp4?...",
+    "recordingDownloadUrlExpiresInSeconds": 900,
+    "recordingFileSizeBytes": 20971520,
+    "recordingContentType": "video/mp4",
+    "recordingStart": "2026-08-02T23:45:00Z",
+    "recordingEnd": "2026-08-03T00:20:00Z",
+    "prompt": "a man wearing a black short sleeve top and black pants",
+    "exclusionPrompt": null,
+    "searchStart": "2026-08-03T00:00:00Z",
+    "searchEnd": "2026-08-03T00:30:00Z",
+    "analysisStart": "2026-08-03T00:00:00Z",
+    "analysisEnd": "2026-08-03T00:20:00Z",
+    "searchArea": "front gate",
+    "attempt": 1
+  }
+}
+```
+
+- `recordingObjectKey`는 기존 Worker와의 호환 및 작업 추적을 위해 유지한다. Worker는 MinIO 자격증명 없이 `recordingDownloadUrl`로 원본을 GET한다.
+- `recordingDownloadUrlExpiresInSeconds`는 URL의 남은 유효 시간을 초 단위로 나타내며 기본값은 900초(15분)다. `recordingFileSizeBytes`는 녹화 등록 시 저장한 실제 크기이고 `recordingContentType`은 `video/mp4`다.
+- Worker 대상 녹화본은 운영상 최대 약 20MB이므로 `/target` 응답 직후 원본 전체를 로컬 임시 파일로 내려받은 다음 분석한다. 분석 내내 원격 URL을 스트리밍하지 않는다.
+- URL 만료 또는 다운로드 재시도 시 실행 중인 작업을 소유한 Worker가 `/target`을 다시 호출해 새 URL을 발급받는다.
+- Storage GET 요청에는 `X-Worker-Key`를 전달하지 않는다. 서버와 Worker는 query string을 포함한 전체 presigned URL을 로그에 남기지 않는다.
+- 작업·상태·Worker 소유권·유효 분석 구간을 검증한 뒤 URL을 발급하며 서명 실패는 `503 STORAGE_UNAVAILABLE`이다.
 
 ---
 
 ## 10. 감사 로그 API
 
-`GET /api/v1/admin/audit-logs`
-
-인증: ADMIN
-주요 응답: `200`, `400`, `401`, `403`
-
-| 쿼리 파라미터 | 필수 | 설명 |
-| --- | --- | --- |
-| `caseId` | 아니요 | 사건 ID |
-| `adminId` | 아니요 | 수행 관리자 ID |
-| `actionType` | 아니요 | 작업 유형 |
-| `targetType` | 아니요 | 대상 엔터티 유형 |
-| `targetId` | 아니요 | 대상 ID |
-| `createdFrom` | 아니요 | 조회 시작 시각 |
-| `createdTo` | 아니요 | 조회 종료 시각 |
-| `page`, `size`, `sort` | 아니요 | 페이지·정렬 조건 |
-
-기본 정렬은 `createdAt,desc`이다.
-
-응답 주요 필드:
-
-| 필드 | 타입 | 설명 |
-| --- | --- | --- |
-| `id` | long | 감사 로그 ID |
-| `admin` | object, nullable | 수행 관리자의 ID와 이름 |
-| `caseId` | long, nullable | 관련 사건 ID |
-| `actionType` | string | 작업 유형 |
-| `targetType` | string, nullable | 작업 대상 유형 |
-| `targetId` | long, nullable | 작업 대상 ID |
-| `beforeValue` | object/string, nullable | 변경 전 값 |
-| `afterValue` | object/string, nullable | 변경 후 값 |
-| `detail` | string, nullable | 상세 설명 |
-| `createdAt` | datetime | 수행 시각 |
-
-- 비밀번호, 토큰, Device Key, 전체 RTSP URL 등 비밀정보는 변경 전후 값에 기록하지 않는다.
-- 개인정보 조회 이력도 남기되 응답 권한과 보존 정책은 별도 운영 정책을 따른다.
-- 감사 로그는 이 API로 수정·삭제할 수 없다.
+현재 `dev`는 주요 변경을 `audit_logs`에 저장하지만 관리자용 감사 로그 조회 컨트롤러를 제공하지 않는다. `/api/v1/admin/audit-logs`는 호출할 수 없는 후속 범위다.
 
 ---
 
@@ -850,15 +1655,31 @@
 | ERD 엔터티 | 관련 API·처리 | 주요 관계 |
 | --- | --- | --- |
 | `ADMINS` | 관리자 로그인, `/admins/me`, 후보 판정, 감사 로그 | `CANDIDATES.reviewed_by`, `AUDIT_LOGS.admin_id` |
-| `REPORTERS` | 신고 접수, 사건조회번호·전화번호 기반 진행 조회 | `REPORTERS 1:N CASES` |
-| `CASES` | 신고 접수, 관리자 사건 관리, 신고자 진행 조회 | 탐색 조건·후보·작업·로그의 기준 사건 |
+| `REPORTERS` | 관리자가 입력한 사건별 연락처 스냅샷, 사건조회번호·전화번호 기반 진행 조회 | v1에서는 사건마다 새로 생성하며 각 `REPORTERS`는 해당 `CASES` 한 건에만 사용 |
+| `CASES` | 관리자 사건 등록·관리, 신고자 진행 조회 | 탐색 조건·후보·작업·로그의 기준 사건 |
 | `SEARCH_CONDITIONS` | `/admin/cases/{caseId}/search-conditions` | `CASES 1:N SEARCH_CONDITIONS` |
-| `CAMERAS` | 관리자 카메라 관리, Heartbeat, 후보 이벤트 | 녹화·후보의 촬영 카메라 |
+| `MEDIA_SERVERS` | 관리자 미디어 서버 관리, Device Key 인증·교체 | `MEDIA_SERVERS 1:N CAMERAS` |
+| `CAMERAS` | 관리자 카메라 관리, Heartbeat, 후보 이벤트 | 미디어 서버 소속이며 녹화·후보의 촬영 카메라 |
 | `CASE_CAMERAS` | 사건별 카메라 지정·제외 | `CASES N:M CAMERAS` 연결 및 활성 여부 |
-| `RECORDINGS` | 장치 녹화 메타데이터 등록, 관리자 녹화 조회 | `CAMERAS 1:N RECORDINGS` |
+| `RECORDINGS` | 업로드 완료 객체의 HEAD/stat 검증 후 메타데이터 등록, 관리자 녹화 조회 | `CAMERAS 1:N RECORDINGS` |
 | `CANDIDATES` | 후보 이벤트 등록, 관리자 후보 조회·판정, 동선 | 사건·카메라·검토 관리자 참조 |
 | `ANALYSIS_JOBS` | 분석 작업 생성·조회·재시도, 클립 생성 내부 처리 | 사건 및 녹화본 또는 후보 참조 |
 | `AUDIT_LOGS` | 감사 로그 조회, 모든 주요 변경의 내부 기록 | 관리자·사건과 선택적 연결 |
+
+`MEDIA_SERVERS` 주요 컬럼:
+
+| 컬럼 | 제약·설명 |
+| --- | --- |
+| `id` | 내부 숫자 ID, PK |
+| `server_code` | 외부 식별자, UNIQUE |
+| `name` | 관리자 표시 이름 |
+| `device_key_id` | Device Key의 공개 조회 식별자, UNIQUE |
+| `device_key_hash` | `randomSecret`의 bcrypt 또는 Argon2 계열 해시 |
+| `status` | `ACTIVE`, `INACTIVE`, `REVOKED` |
+| `last_authenticated_at` | 최근 Device Key 인증 성공 시각, nullable |
+| `created_at`, `updated_at` | 생성·수정 시각 |
+
+`CAMERAS.media_server_id`는 `MEDIA_SERVERS.id`를 참조하는 필수 FK다. Device Key는 카메라가 아닌 미디어 서버에만 저장하며 관계는 `MEDIA_SERVERS 1:N CAMERAS 1:N RECORDINGS`다.
 
 ---
 
@@ -867,14 +1688,28 @@
 | 시나리오 | 처리 |
 | --- | --- |
 | 탐색 종료가 시작보다 빠름 | `400 VALIDATION_ERROR` |
+| 신규·수정 탐색 프롬프트를 canonical 문장으로 정규화할 수 없음 | `400 REALTIME_PROMPT_INVALID` |
+| 준비되지 않은 사건을 `SEARCHING`으로 전환 | `422 BUSINESS_RULE_VIOLATION` |
+| `SEARCHING` 사건의 마지막 실시간 사용 가능 조건 또는 마지막 활성 카메라 제거 | `422 BUSINESS_RULE_VIOLATION` |
 | 탐색 카메라 없이 분석 작업 요청 | `422 BUSINESS_RULE_VIOLATION` |
-| 미등록 Device Key로 Heartbeat 또는 후보 전송 | `401 INVALID_DEVICE_KEY` |
-| Device Key와 다른 `raspberryId` 사용 | `403 ACCESS_DENIED` |
-| 동일 후보 이벤트 재전송 | 최초 생성 결과를 `200`과 `duplicate=true`로 반환 |
+| `X-Device-Key` 헤더 누락 | `401 AUTHENTICATION_REQUIRED` |
+| Device Key 형식 오류·미등록 ID·secret 불일치·비활성 또는 폐기 서버 | 상세 원인을 숨기고 `401 INVALID_DEVICE_KEY` 반환 |
+| 다른 미디어 서버 소속 `cameraCode` 사용 | `403 ACCESS_DENIED` |
+| 동일 녹화·후보 요청 재전송 | 최초 생성 결과를 `200`과 `duplicate=true`로 반환 |
+| 같은 Idempotency-Key에 다른 요청 내용 사용 | `409 IDEMPOTENCY_KEY_CONFLICT` |
+| 완료 등록된 Idempotency-Key로 업로드 URL 재발급 | `409 RECORDING_ALREADY_REGISTERED` |
+| 다른 Idempotency-Key로 같은 `objectKey` 등록 | `409 DUPLICATE_RESOURCE` |
+| 녹화 객체가 저장소에 없음 | `422 STORAGE_OBJECT_NOT_FOUND`, 녹화 리소스 미생성 |
+| 녹화 객체 크기가 0 | `422 STORAGE_OBJECT_INVALID`, 녹화 리소스 미생성 |
+| 녹화 객체가 100 MiB를 초과함 | `413 FILE_TOO_LARGE`, 녹화 리소스 미생성 |
+| 녹화 객체의 Content-Type 또는 `ftyp` 시그니처가 잘못됨 | `422 STORAGE_OBJECT_INVALID`, 녹화 리소스 미생성 |
+| 녹화 URL 서명 또는 객체 HEAD/stat·Range GET 중 저장소 일시 장애 | `503 STORAGE_UNAVAILABLE`, 같은 멱등 요청으로 재시도 가능 |
+| Device 요청 허용 횟수 초과 | `429 RATE_LIMIT_EXCEEDED` |
 | 후보 판정 `version` 불일치 | `409 OPTIMISTIC_LOCK_CONFLICT`와 최신 후보 정보 반환 |
 | 존재하지 않는 사건·카메라·후보 요청 | `404 RESOURCE_NOT_FOUND` |
 | 실행 중인 작업 또는 미처리 후보가 있는 사건 종료 | `409 CASE_CLOSE_CONFLICT` |
 | 종료 사건에 후보·탐색 작업 추가 | `422 BUSINESS_RULE_VIOLATION` |
+| 전화번호에 ASCII 숫자·하이픈·공백 외 문자가 포함되거나 정규화 결과가 10~11자리가 아님 | `400 VALIDATION_ERROR` |
 | 사건조회번호와 전화번호 조합 불일치 | 상세 불일치 원인을 숨기고 `404 INQUIRY_NOT_FOUND` 반환 |
 | 동일 전화번호 또는 IP의 과도한 진행 조회 | `429 RATE_LIMIT_EXCEEDED` |
 
@@ -883,8 +1718,44 @@
 ## 13. 구현 참고사항
 
 - 서버 저장 일시는 모두 UTC를 사용하고 화면에서 KST 등 사용자 시간대로 변환한다.
-- 관리자 JWT의 비밀번호 검증은 단방향 해시를 사용하며 평문 비밀번호를 저장하거나 로그에 남기지 않는다.
+- 관리자 비밀번호 검증은 단방향 해시를 사용하며 평문 비밀번호를 저장하거나 로그에 남기지 않는다.
+- 관리자 API는 Stateful 세션 인증을, Device API는 Stateless Device Key 인증을 사용한다. Device API는 세션을 생성하지 않으며 CSRF 검사에서 제외한다.
+- Device Key 인증 필터 또는 AuthenticationProvider는 헤더 파싱, 미디어 서버 조회, 상태·secret 검증과 `MediaServerPrincipal` 생성을 담당한다.
+- 서비스 계층은 카메라 소유권, 서버 생성 녹화 `objectKey`와 업무 규칙을 검증한다. 인증 로직과 리소스 소유권 검사를 한 계층에 혼합하지 않는다.
+- Device API는 HTTPS로만 제공하며 Device Key 원문은 최초 발급·교체 시 한 번만 전달하고 DB·소스 코드·Git·요청 및 오류 로그에 저장하지 않는다.
+- 미디어 서버에서는 Device Key를 환경 변수, 실행 계정만 읽을 수 있는 설정 파일 또는 systemd credential로 관리한다.
+- 미디어 서버당 활성 Device Key 하나만 지원하며 키 교체 즉시 이전 키를 무효화한다. 무중단 교체나 키 이력이 필요하면 별도 credentials 테이블을 도입한다.
 - 후보 판정은 `CANDIDATES.version`을 이용한 낙관적 락으로 동시 수정을 방지한다.
-- 후보 이미지·클립·녹화본 저장 실패 시 DB와 객체 저장소 사이의 보상 처리를 수행한다.
-- 장치 Heartbeat의 `OFFLINE` 판정 시간, 관리자 JWT 만료 시간, 임시 미디어 URL 만료 시간, 조회 Rate Limit과 파일 용량은 환경 설정으로 관리한다.
+- 후보 이미지·클립과 녹화는 중앙 서버가 발급한 presigned PUT URL로 업로드한다. 녹화 완료 검증에 실패하면 객체를 변경하거나 DB 행을 생성하지 않는다.
+- 관리자 세션 만료 시간은 현재 30분이며 애플리케이션 설정으로 관리한다.
+- 로그인·사건 진행 조회 Rate Limit은 현재 애플리케이션 상수로 적용한다. 장치 Heartbeat의 `OFFLINE` 판정 시간, 임시 미디어 URL 만료 시간과 파일 용량은 환경 설정으로 관리한다.
 - REST 조회 API는 WebSocket 연결이 끊긴 동안 발생한 후보와 상태 변경을 복구 조회하는 기준 데이터로 사용한다.
+- `SEARCH_CONDITIONS.similarity_threshold`는 기존 데이터 호환을 위해 nullable 컬럼으로 남기되 신규 행에는 `NULL`을 저장하고 런타임에서 읽지 않는다. `ANALYSIS_JOBS.similarity_threshold_snapshot`도 기존 nullable 컬럼과 데이터만 보존하며 신규 작업에는 기록하지 않는다.
+
+---
+
+## 14. 후속 목표 API 계약 — 일부 구현
+
+> 14.1과 14.2는 목표 설계이며 현재 호환성을 보장하지 않는다. 14.3의 확정 동선 조회는 구현되어 6.5의 실제 계약을 따른다.
+
+### 14.1 후보 조회·판정·미디어 목표
+
+- 사건별 후보 목록 `GET /api/v1/admin/cases/{caseId}/candidates`와 `source`, `minSimilarity` 필터를 추가한다.
+- 후보 출처는 `JETSON_REALTIME`, `RECORDING_ANALYSIS`, `LEGACY_UNKNOWN`으로 구분하고 실시간 후보를 우선 정렬한다.
+- 대표 탐지와 변경 불가능한 판정 근거를 저장하며 판정 요청에 `evidenceDetectionId`를 포함한다.
+- 후보·탐지 미디어는 Object Key를 응답하지 않고 인증된 `/media/{mediaType}` 경로에서 소유 관계를 검증한 뒤 presigned URL로 리다이렉트한다.
+- 이 목표는 후보 provenance·대표 탐지·판정 근거 스키마가 추가된 뒤에만 활성화한다.
+
+### 14.2 자동 녹화 분석과 경로 예측 목표 — 이번 변경 미포함
+
+- 사건 탐색 시작 시 마지막 목격 장소·시각을 기준으로 `LAST_SIGHTING` 분석 작업을 자동 생성하는 것은 후속 목표다. 현재 `SEARCHING` 전이는 실시간 검색 대상 변경 알림만 발행하며 `analysis_jobs` 또는 녹화 분석 outbox를 생성하지 않는다.
+- 녹화본 후보의 관측 추정 경로가 갱신되면 위·경도 기준 다음 카메라를 최대 2대 선정해 `ROUTE_PREDICTION` 작업을 생성한다.
+- 목표 작업 계약에는 `triggerType`, `triggerCandidateIds`, `predictedCameraRank`, `searchFrom`, `searchTo`를 포함한다.
+- 외부 AI Worker 연동은 Worker Key 인증, claim lease, 멱등 결과·실패 접수 API를 제공한다. heartbeat와 Worker 취소 API는 후속 범위다.
+- 상세 메시지와 REST 계약은 [녹화 분석 Worker API](./recording-analysis-worker-api.md)와 [녹화 AI Worker 연동 계약](./녹화%20AI%20Worker%20연동%20계약.md)을 따른다.
+
+### 14.3 확정 동선 조회 — 구현 완료
+
+- `GET /api/v1/admin/cases/{caseId}/route`에서 관리자 확정 후보를 최초 탐지 시각과 후보 ID 순으로 조회한다.
+- 카메라의 위도·경도와 주소를 함께 반환하며 별도 동선 테이블은 사용하지 않는다.
+- 응답 구조와 오류 계약은 6.5를 따른다.

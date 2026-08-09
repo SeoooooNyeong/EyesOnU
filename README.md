@@ -54,7 +54,7 @@ docker compose --env-file infra/.env -f infra/compose.local.yml ps -a
 
 | 서비스 | 주소 | 용도 |
 | --- | --- | --- |
-| MySQL | `localhost:3307` | 애플리케이션 데이터베이스 |
+| MySQL 8.0.46 | `localhost:3307` | 애플리케이션 데이터베이스 |
 | RabbitMQ | `localhost:5672` | AMQP 연결 |
 | RabbitMQ Management | `http://localhost:15672` | 큐 관리 UI |
 | MinIO S3 API | `http://localhost:9000` | S3 호환 API |
@@ -91,18 +91,31 @@ SPRING_PROFILES_ACTIVE=local
 DB_URL
 DB_USERNAME
 DB_PASSWORD
+AUTH_RATE_LIMIT_KEY_SECRET
+ADMIN_BOOTSTRAP_LOGIN_ID
+ADMIN_BOOTSTRAP_PASSWORD
+ADMIN_BOOTSTRAP_NAME
 SPRING_RABBITMQ_HOST
 SPRING_RABBITMQ_PORT
 SPRING_RABBITMQ_USERNAME
 SPRING_RABBITMQ_PASSWORD
 SPRING_RABBITMQ_VIRTUAL_HOST
-S3_ENDPOINT
-S3_REGION
-S3_BUCKET
-S3_PATH_STYLE_ACCESS
-S3_ACCESS_KEY
-S3_SECRET_KEY
+MINIO_INTERNAL_ENDPOINT
+MINIO_PUBLIC_ENDPOINT
+MINIO_REGION
+MINIO_BUCKET
+MINIO_APP_ACCESS_KEY
+MINIO_APP_SECRET_KEY
+RECORDING_MAX_FILE_SIZE_BYTES
+MINIO_CONNECT_TIMEOUT
+MINIO_READ_TIMEOUT
+MINIO_CALL_TIMEOUT
+MINIO_PRESIGNED_URL_EXPIRY
 ```
+
+운영 전환 기간에는 `compose.deploy.yml`이 기존 `S3_*` 환경변수를 임시로 `MINIO_*` 컨테이너 환경변수로 변환합니다. 모든 배포 대상이 `MINIO_*` 계열로 전환된 뒤 Compose의 레거시 fallback을 제거합니다.
+
+운영 환경변수, 자격증명 교체와 버킷 복구 절차는 [MinIO 운영 및 자격증명 교체](<./docs/MinIO 운영 및 자격증명 교체.md>)를 참고합니다.
 
 Docker 인프라가 실행 중인지 확인한 후 `EyesonuApplication`을 실행합니다.
 
@@ -142,6 +155,24 @@ Extension Pack for Java에 Lombok 지원이 포함되어 있으므로 별도의 
 
 Docker 인프라가 실행 중인지 확인한 후 `F5`를 누르거나 Spring Boot Dashboard에서 애플리케이션을 실행합니다.
 
+### 미디어 서버 녹화 업로드
+
+- 미디어 서버는 `X-Device-Key`와 canonical UUID `Idempotency-Key`로 `/api/v1/device/cameras/camera-01/recording-upload-urls`를 호출해 15분짜리 단일 PUT URL과 서버 생성 object key를 발급받습니다.
+- 배포 환경에서는 응답의 공용 HTTPS storage URL에 `Content-Type: video/mp4`로 녹화본을 PUT한 뒤, 같은 UUID·촬영 시간·object key로 `/api/v1/device/cameras/camera-01/recordings`를 호출해 완료 등록합니다.
+- 녹화본 제한은 `104857600`바이트(100 MiB)입니다. URL이 만료되거나 PUT이 실패하면 최초 요청과 동일한 UUID, `startTime`, `endTime`으로 URL을 재발급받아 전체 파일을 다시 업로드합니다. 완료 등록 후에는 아직 만료되지 않은 기존 URL도 폐기하고 다시 PUT하지 않습니다.
+- `MINIO_APP_ACCESS_KEY`와 `MINIO_APP_SECRET_KEY`는 백엔드가 MinIO를 관리하고 URL을 서명하기 위한 값입니다. Raspberry Pi 5 등 미디어 서버에 배포하지 않으며, Tailscale은 dev HLS 연결에만 사용합니다.
+
+전체 요청·응답과 운영 규칙은 [REST API 명세서](<./docs/API 명세서.md>)와 [미디어 서버 Device Key 운영](<./docs/미디어서버 Device Key 운영.md>)을 따릅니다.
+
+### 관리자 세션 인증
+
+- 최초 실행 시 `infra/.env`의 `ADMIN_BOOTSTRAP_*` 값으로 `SUPER_ADMIN` 계정 하나를 생성합니다. 이미 관리자가 있으면 이 값으로 계정을 덮어쓰지 않습니다.
+- `SUPER_ADMIN`은 관리자 계정 목록 조회, 일반 `ADMIN` 계정 생성 및 활성화·비활성화를 수행할 수 있습니다. 새 계정은 항상 `ADMIN` 권한으로 생성됩니다.
+- 브라우저 클라이언트는 로그인 전에 `GET /api/v1/auth/csrf`를 호출하고 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로 보냅니다.
+- 로그인 후 JWT를 저장하지 않습니다. `EYESONU_SESSION`은 `HttpOnly` 쿠키이며 브라우저가 자동으로 전송합니다.
+- 로그인 성공과 로그아웃 후에는 CSRF 발급 API를 다시 호출합니다.
+- 운영에서는 관리자 웹과 `/api`를 동일 Origin으로 프록시하고 백엔드 8080 포트를 외부에 직접 공개하지 않습니다.
+
 ## 5. 테스트
 
 PowerShell에서 다음 명령을 실행합니다. 테스트는 자동으로 `test` 프로필을 사용합니다.
@@ -153,7 +184,31 @@ Set-Location apps/backend-api/eyesonu
 
 IDE에서도 `src/test` 아래의 테스트 클래스 또는 메서드를 직접 실행할 수 있습니다.
 
-## 6. 종료와 초기화
+## 6. GitLab CI와 Jenkins CD 경계
+
+GitLab CI는 Merge Request의 빌드와 테스트만 담당합니다. Jenkins는 `dev` 또는 `master`에 반영된 커밋을 감지하고 해당 커밋을 직접 checkout하여 Docker 이미지를 빌드하고 서버에 배포합니다.
+
+### 파이프라인 실행 정책
+
+- Merge Request에서 백엔드가 변경되면 Maven 빌드와 일반 테스트를 실행합니다.
+- Merge Request에서 관리자 대시보드가 변경되면 `npm ci`와 Vite 빌드를 실행합니다.
+- `.gitlab-ci.yml`이 변경되면 백엔드와 관리자 대시보드를 모두 검증합니다.
+- 문서나 인프라 파일만 변경되면 경량 파이프라인 정보 작업만 실행합니다.
+- 소스와 패키지 매니페스트가 아직 없는 `apps/frontend/reporter-webapp`은 CI 대상에서 제외합니다.
+- `dev`와 `master` push에서는 GitLab CI 파이프라인을 생성하지 않습니다.
+
+### Jenkins 연동 규칙
+
+GitLab CI는 Jenkins를 호출하거나 JAR, `dist/`, Docker 이미지를 전달하지 않습니다. Jenkins는 `dev` 또는 `master`에 병합된 커밋 SHA를 checkout한 뒤 그 소스로 Docker 이미지를 빌드하고 배포합니다. `infra/Jenkinsfile` 수정과 실제 배포 구성은 Jenkins 담당자의 작업 범위입니다.
+
+### GitLab Runner 요구 사항
+
+- 태그 없는 일반 Linux Docker executor를 사용하고 `Run untagged jobs`를 활성화합니다.
+- Docker-in-Docker와 privileged 모드는 필요하지 않습니다. Docker를 사용할 수 없는 Runner에서는 현재 설정에 따라 MySQL Testcontainers 통합 테스트가 생략될 수 있습니다.
+- 프로젝트의 Merge checks에서 `Pipelines must succeed`를 활성화해야 실패하거나 실행 중인 파이프라인의 Merge Request를 병합할 수 없습니다.
+- Container Registry와 Registry 인증 변수는 GitLab CI에서 사용하지 않습니다.
+
+## 7. 종료와 초기화
 
 저장소 루트에서 실행합니다.
 
@@ -170,7 +225,14 @@ docker compose --env-file infra/.env -f infra/compose.local.yml down -v
 
 > `down -v`는 MySQL, RabbitMQ, MinIO의 로컬 데이터를 복구할 수 없게 삭제합니다. 초기화가 필요한 경우에만 사용하세요.
 
-## 7. 문제 해결
+### MySQL 8.4 데이터가 남아 있는 경우
+
+로컬 Compose는 MySQL 8.0.46을 사용합니다. MySQL 8.4에서 생성한 `mysql_data` 볼륨을 MySQL 8.0.46 컨테이너에 직접 연결하지 마세요. MySQL은 데이터 디렉터리를 이전 버전에서 직접 여는 다운그레이드를 지원하지 않습니다.
+
+- 기존 데이터가 필요하면 MySQL 8.4에서 논리 백업한 뒤 새 MySQL 8.0.46 볼륨으로 복원합니다.
+- 기존 데이터가 불필요하고 RabbitMQ와 MinIO 데이터도 함께 삭제해도 되는 경우에만 위의 `down -v` 명령으로 로컬 인프라를 초기화합니다.
+
+## 8. 문제 해결
 
 - `docker` 명령을 찾지 못하면 Docker Desktop이 설치 및 실행 중인지 확인한 뒤 PowerShell을 다시 엽니다.
 - `3307`, `5672`, `15672`, `9000`, `9001` 포트를 이미 사용 중이면 해당 프로그램을 종료하거나 `infra/.env`의 로컬 포트를 변경합니다.

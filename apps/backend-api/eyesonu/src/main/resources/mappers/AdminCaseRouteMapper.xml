@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.eyesonu.missingcase.mapper.AdminCaseRouteMapper">
+    <resultMap id="routePointMap" type="com.ssafy.eyesonu.missingcase.domain.AdminCaseRouteRow">
+        <constructor>
+            <arg column="candidate_id" javaType="java.lang.Long"/>
+            <arg column="source_type" javaType="com.ssafy.eyesonu.missingcase.domain.CandidateSourceType"/>
+            <arg column="camera_id" javaType="java.lang.Long"/>
+            <arg column="camera_code" javaType="java.lang.String"/>
+            <arg column="camera_name" javaType="java.lang.String"/>
+            <arg column="address" javaType="java.lang.String"/>
+            <arg column="latitude" javaType="java.math.BigDecimal"/>
+            <arg column="longitude" javaType="java.math.BigDecimal"/>
+            <arg column="first_detected_at" javaType="java.time.Instant"/>
+            <arg column="last_detected_at" javaType="java.time.Instant"/>
+            <arg column="best_similarity" javaType="java.math.BigDecimal"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findConfirmedRoutePoints" resultMap="routePointMap">
+        SELECT c.id AS candidate_id,
+               c.source_type,
+               cam.id AS camera_id,
+               cam.camera_code,
+               cam.camera_name,
+               cam.address,
+               cam.latitude,
+               cam.longitude,
+               c.first_detected_at,
+               c.last_detected_at,
+               c.best_similarity
+        FROM candidates c
+        INNER JOIN cameras cam ON cam.id = c.camera_id
+        WHERE c.case_id = #{caseId}
+          AND c.review_status = 'CONFIRMED'
+        ORDER BY c.first_detected_at ASC, c.id ASC
+    </select>
+</mapper>

@@ -1,0 +1,17 @@
+[Unit]
+Description=Report MediaMTX camera status to the central API
+After=network-online.target mediamtx.service
+Wants=network-online.target
+Requires=mediamtx.service
+
+[Service]
+Type=simple
+User=mediamtx
+Group=mediamtx
+EnvironmentFile=/etc/default/mediamtx-uploader
+ExecStart=/usr/local/lib/mediamtx/report-camera-heartbeats.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

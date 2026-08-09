@@ -1,0 +1,12 @@
+const REVIEW_STATUS = { PENDING: { label: "미판정", tone: "amber" }, KEPT: { label: "후보 유지", tone: "blue" }, CONFIRMED: { label: "대상 확인", tone: "green" }, REJECTED: { label: "대상 아님", tone: "gray" } };
+export const reviewStatusLabel = (status) => REVIEW_STATUS[String(status || "").toUpperCase()]?.label || "알 수 없음";
+export const reviewStatusTone = (status) => REVIEW_STATUS[String(status || "").toUpperCase()]?.tone || "gray";
+export const formatCandidateDate = (value) => { if (!value) return "-"; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Seoul", hour12: false }).format(date); };
+export const similarityPercent = (value) => Math.round(Number(value || 0) * 100);
+export const similarityTone = (value) => { const score = similarityPercent(value); return score >= 70 ? "high" : score >= 40 ? "medium" : "low"; };
+const SOURCE_TYPE = {
+  REALTIME: { label: "실시간", tone: "green" },
+  RECORDING_ANALYSIS: { label: "녹화", tone: "blue" }
+};
+export const candidateSourceLabel = (sourceType) => SOURCE_TYPE[String(sourceType || "").toUpperCase()]?.label || "출처 미상";
+export const candidateSourceTone = (sourceType) => SOURCE_TYPE[String(sourceType || "").toUpperCase()]?.tone || "gray";
